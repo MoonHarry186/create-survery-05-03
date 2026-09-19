@@ -1,6 +1,6 @@
 ---
 name: create-survery-05-03
-description: Tạo mới workbook Survey 05 từ template cho từng bảng hoặc view, điền sheet 03-COLUMNS từ DDL và nguồn mô tả, xử lý tuần tự và giữ nguyên nguồn.
+description: Tạo mới workbook Survey 05 từ template cho từng bảng hoặc view, điền sheet 03-COLUMNS theo cú pháp Oracle Database 26 từ DDL và nguồn mô tả, xử lý tuần tự và giữ nguyên nguồn.
 metadata:
   short-description: Tạo workbook từ DDL và điền 03-COLUMNS
 ---
@@ -151,7 +151,7 @@ Khi xử lý nhiều đối tượng, sắp xếp ổn định theo `schema` r�
 6. ghi đúng một dòng vào `outputs/batch-report.csv`;
 7. giải phóng workbook hiện tại.
 
-Lỗi của một đối tượng không được làm mất báo cáo hoặc dừng các đối tượng độc lập khác. Nếu lỗi làm không thể xác định hoặc tạo workbook, ghi `error` hoặc `conflict` và chuyển tiếp.
+Lỗi của một đối tượng không được làm mất báo cáo hoặc dừng các đối tượng độc lập khác. Conflict datatype vẫn phải tạo workbook và ghi cảnh báo ở `Conflicts`/`Questions`; chỉ ghi `error` hoặc `conflict` khi không thể xác định đối tượng, đọc nguồn hoặc export workbook.
 
 Khi số field vượt quá 80 dòng mẫu của template, phải ghi values cho phần dòng mẫu trước, sau đó copy dòng mẫu cuối sang từng dòng mở rộng và ghi values riêng cho từng dòng mở rộng. Vì `copyTo(..., "all")` không giữ style ổn định cho dòng ngoài vùng template trong Artifact Tool, phải áp dụng explicit format cho `A` và `B:P` của toàn bộ dòng mở rộng trước khi áp dụng validation/autofit; kiểm tra style tại dòng cuối mẫu và dòng mở rộng đầu tiên trước khi bàn giao.
 
@@ -166,6 +166,28 @@ Khi số field vượt quá 80 dòng mẫu của template, phải ghi values cho
 - cột tham gia khóa composite;
 - bảng và cột được tham chiếu;
 - thông tin index khi cần đối chiếu, nhưng không coi index là constraint.
+
+Khi trích xuất kiểu dữ liệu, phải tách riêng `kiểu gốc từ DDL` và `kiểu ghi vào cột C`. Cột C là metadata đích cho Oracle Database 26, không phải bản sao nguyên văn của biểu thức DDL.
+
+### 1.3.1. Chuẩn hóa `C - Kiểu dữ liệu` theo Oracle Database 26
+
+Quy tắc này dựa trên tài liệu Oracle Database 26 chính thức: [SQL Language Reference — Data Types](https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/Data-Types.html), [SQL Language Quick Reference — Data Types](https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlqr/Data-Types.html) và [MAX_STRING_SIZE](https://docs.oracle.com/en/database/oracle/oracle-database/26/refrn/MAX_STRING_SIZE.html). Không suy đoán từ phiên bản Oracle cũ.
+
+1. Giữ nguyên biểu thức kiểu gốc trong bằng chứng xử lý. Chỉ đưa kiểu đã chuẩn hóa vào cột C. Khi kiểu C khác DDL gốc, ghi trong audit/report: `Kiểu dữ liệu gốc từ DDL: <gốc>; kiểu Oracle Database 26 trong C: <đích>; áp dụng CEIL(<n> × 1.2)` hoặc nêu rõ lý do chuẩn hóa alias; không đưa provenance kiểu dữ liệu vào `P - Ghi chú`.
+2. Chỉ chuẩn hóa alias khi bảng ánh xạ Oracle Database 26 xác nhận tương đương ngữ nghĩa, ví dụ `CHARACTER(n)` → `CHAR(n)`, `VARCHAR(n)`/`CHARACTER VARYING(n)`/`CHAR VARYING(n)` → `VARCHAR2(n)`, `NATIONAL CHARACTER(n)`/`NATIONAL CHAR(n)` → `NCHAR(n)`, `NATIONAL CHARACTER VARYING(n)`/`NATIONAL CHAR VARYING(n)`/`NCHAR VARYING(n)` → `NVARCHAR2(n)`, `NUMERIC`/`DECIMAL` → `NUMBER`, `INTEGER`/`INT`/`SMALLINT` → `NUMBER(38)`, `DOUBLE PRECISION` → `FLOAT(126)` và `REAL` → `FLOAT(63)`. Không tự tạo alias hoặc kiểu mới.
+3. Với `CHAR(n)`, `VARCHAR2(n)`, `NCHAR(n)` và `NVARCHAR2(n)`, tính đúng một lần từ giới hạn nguyên bản đã đọc trong DDL:
+
+   `giới hạn_mới = CEIL(giới_hạn_gốc × 1.2)`
+
+   Giữ nguyên `BYTE` hoặc `CHAR` của DDL đối với `CHAR`/`VARCHAR2`. `NCHAR` và `NVARCHAR2` luôn dùng độ dài ký tự theo cú pháp Oracle Database 26; nếu DDL gắn `BYTE` hoặc `CHAR` cho hai kiểu national-character này thì không tự sửa, phải ghi `conflict`/`error`, giữ kiểu gốc và hỏi xác nhận.
+4. Các ví dụ bắt buộc: `VARCHAR2(20)` → `VARCHAR2(24)`, `VARCHAR2(20 CHAR)` → `VARCHAR2(24 CHAR)`, `VARCHAR2(20 BYTE)` → `VARCHAR2(24 BYTE)`, `CHAR(1)` → `CHAR(2)`, `NCHAR(5)` → `NCHAR(6)`, `NVARCHAR2(10)` → `NVARCHAR2(12)`, `VARCHAR2(1)` → `VARCHAR2(2)`, `1` → `2`, `3` → `4`, `20` → `24`. Không dùng làm tròn gần nhất.
+5. Không tăng 20% cho `NUMBER`, `DATE`, `TIMESTAMP`, `CLOB`, `NCLOB`, `BLOB`, `RAW`, `LONG`, các kiểu không có giới hạn ký tự hữu hạn hoặc các thuộc tính precision/scale. `BYTE`, `CHAR`, precision, scale, default, nullable và constraint không được thay đổi ngoài quy tắc độ dài nêu trên.
+6. Sau khi tăng, phải kiểm tra giới hạn Oracle Database 26 trong đúng context. `CHAR` không vượt quá 2000; `VARCHAR2` không vượt quá 4000 với `MAX_STRING_SIZE=STANDARD` hoặc 32767 với `EXTENDED`; `NCHAR` không vượt quá giới hạn của national character set; `NVARCHAR2` không vượt quá giới hạn kết hợp của `MAX_STRING_SIZE` và national character set. Khi context chưa được cung cấp, dùng giới hạn bảo thủ hơn để phát hiện conflict, không tự chọn context thuận lợi.
+7. Nếu `CEIL(n × 1.2)` vượt giới hạn `STANDARD`, đặt kiểu ghi vào C về giới hạn chuẩn tương ứng của Oracle Database 26, giữ `BYTE` hoặc `CHAR` hợp lệ của DDL và ghi rõ kiểu gốc, kết quả `CEIL` và kiểu đã giới hạn trong audit/report. Ví dụ `VARCHAR2(4000)` → `VARCHAR2(4000)` sau khi `CEIL(4000 × 1.2) = 4800` vượt `STANDARD`; không đổi sang `CLOB` và không bỏ qua workbook.
+8. Nếu kiểu vượt cả giới hạn `EXTENDED`, có qualifier không hợp lệ hoặc không xác minh được cú pháp Oracle Database 26, vẫn tạo workbook với kiểu gốc trong C, ghi cảnh báo và câu hỏi xác nhận trong `Conflicts`/`Questions` của report. Không tự đổi sang LOB hoặc kiểu thay thế. Conflict datatype không được làm mất output của đối tượng.
+9. Chống tăng lặp: chỉ lấy `n` từ DDL gốc của lần chạy hiện tại. Không đọc giới hạn từ workbook/output trước đó để tính tiếp, không sửa DDL, template hoặc workbook nguồn.
+
+Script phải nhận context Oracle khi cần kiểm tra giới hạn (`MAX_STRING_SIZE` và national character set). Với `STANDARD`, overflow được giới hạn về mức chuẩn và ghi rõ bằng chứng; với conflict datatype còn lại, vẫn tạo workbook với kiểu gốc và ghi conflict/question trong report để xử lý tuần tự không bị dừng.
 
 Nếu có nhiều định nghĩa cùng tên nhưng khác schema, xử lý thành các đối tượng riêng. Nếu hai nguồn mô tả cùng một field mâu thuẫn, không tự chọn; ghi `conflict`, `Questions` và giữ bằng chứng trong `Ghi chú` hoặc báo cáo.
 
@@ -197,11 +219,11 @@ Giữ nguyên 16 cột A:P của template:
 Quy tắc từng trường:
 
 - `Tên cột`: giữ nguyên chính tả, chữ hoa/chữ thường và ký tự của DDL. Không dùng tên trong nguồn khác để ghi đè tên cột DDL.
-- `Kiểu dữ liệu`: giữ nguyên biểu thức nguồn, ví dụ `NUMBER(12,3)`, `VARCHAR2(20)`, `DATE`, `CHAR(1)`, `CLOB`, `BLOB`, `RAW` hoặc `TIMESTAMP`.
+- `Kiểu dữ liệu`: ghi cú pháp Oracle Database 26 sau khi chuẩn hóa alias có bằng chứng và áp dụng một lần `CEIL(n × 1.2)` cho kiểu text hữu hạn được phép. Ví dụ `NUMBER(12,3)`, `VARCHAR2(20)` → `VARCHAR2(24)`, `VARCHAR2(4000)` → `VARCHAR2(4000)` khi kết quả tăng vượt `STANDARD`, `DATE`, `CHAR(1)` → `CHAR(2)`, `CLOB`, `BLOB`, `RAW` hoặc `TIMESTAMP`. Giữ precision, scale, `BYTE`/`CHAR` hợp lệ và các thuộc tính khác; giữ kiểu DDL gốc, kết quả tính và lý do giới hạn trong audit/report khi C đã thay đổi hoặc có conflict, không ghi vào `P - Ghi chú`.
 - `Allow Null`: ghi `N` khi DDL khai báo `NOT NULL`, `CHECK (... IS NOT NULL)` hoặc cột là thành viên PK. Ghi `Y` chỉ khi nguồn khai báo rõ cho phép null. Nếu DDL không đủ căn cứ, để trống và ghi câu hỏi nếu cần.
 - `PK/FK`: chỉ dùng giá trị có trong dropdown `PK`, `FK`, `PK+FK`. Ghi theo constraint nguồn; áp dụng cho từng cột của khóa composite. Không coi unique index là PK.
 - `Bảng FK`: nếu có constraint `REFERENCES`, ghi đúng dạng `SCHEMA.TEN_BANG.TEN_COT`. Nếu không có FK trong DDL, ghi chính xác `Không có`. Không tự đoán bảng/cột đích.
-- `Mô tả`: đọc `references/semantic-field-description.md` trước khi điền. Đây là khảo sát metadata dữ liệu trong ngành hàng không, nên ưu tiên thuật ngữ hàng không khi nguồn cung cấp đủ bằng chứng; không mặc định mọi field thuộc một nghiệp vụ cụ thể. Không dịch literal từng token của tên cột. Ưu tiên mô tả trực tiếp từ data dictionary, DDL comment, PDF, Markdown và tài liệu domain; nếu thiếu thì suy luận theo tên bảng, tên field, datatype, sample, quan hệ PK/FK và các pattern field chỉ khi có bằng chứng. Mô tả phải trả lời field đại diện cho thông tin nghiệp vụ nào và dùng cho vai trò gì nếu xác định được. Không đưa câu về hình dạng datatype/sample như `dữ liệu mẫu có dạng giá trị số` vào cột này. Không tự mở rộng abbreviation chưa có đủ bằng chứng. Không suy luận thành business rule, công thức, bắt buộc nghiệp vụ, PK/FK hoặc PII. Không chèn tên tài liệu, tên chương, số mục, số trang, tiền tố trích dẫn hoặc câu ghi nguồn vào giá trị cột này. Dịch tiếng Anh sang tiếng Việt nhưng không rút gọn hoặc thay đổi ý nghĩa; giữ nguyên thuật ngữ kỹ thuật. Nếu bằng chứng mâu thuẫn hoặc không đủ để tạo mô tả semantic hợp lý, ghi `Chưa rõ` và nêu câu hỏi hoặc giới hạn trong `Ghi chú`; nếu nguồn khẳng định không có nội dung, ghi `Không có`.
+- `Mô tả`: đọc `references/semantic-field-description.md` trước khi điền. Đây là khảo sát metadata dữ liệu trong ngành hàng không, nên ưu tiên thuật ngữ hàng không khi nguồn cung cấp đủ bằng chứng; không mặc định mọi field thuộc một nghiệp vụ cụ thể. Không dịch literal từng token của tên cột. Ưu tiên mô tả trực tiếp từ data dictionary, DDL comment, PDF, Markdown và tài liệu domain; nếu thiếu thì tổng hợp theo tên bảng, tên field, datatype, sample, quan hệ PK/FK và các pattern field có bằng chứng. Mô tả phải trả lời field đại diện cho thông tin nghiệp vụ nào và dùng cho vai trò gì nếu xác định được. Không đưa câu về hình dạng datatype/sample như `dữ liệu mẫu có dạng giá trị số` vào cột này. Không tự mở rộng abbreviation chưa có đủ bằng chứng. Không suy luận thành business rule, công thức, bắt buộc nghiệp vụ, PK/FK hoặc PII. Không chèn tên tài liệu, tên chương, số mục, số trang, tiền tố trích dẫn hoặc câu ghi nguồn vào giá trị cột này. Dịch tiếng Anh sang tiếng Việt nhưng không rút gọn hoặc thay đổi ý nghĩa; giữ nguyên thuật ngữ kỹ thuật. `G. Mô tả` là bắt buộc cho mọi field: không được để trống và không được ghi đúng các placeholder `Chưa rõ` hoặc `Không có`. Khi không có mô tả trực tiếp hoặc bằng chứng chưa đủ để xác định vai trò chi tiết, phải tạo mô tả semantic bảo thủ dựa trên bảng, tên field và kiểu dữ liệu, đồng thời nêu giới hạn xác nhận trong `P. Ghi chú` nếu cần.
 - `Giá trị mặc định`: ghi nguyên biểu thức default từ DDL. Nếu không có hoặc chưa xác định được, ghi `Không có` hoặc để trống khi trường bị giới hạn bởi dropdown/template.
 - `Dữ liệu mẫu`: ghi tối đa 1–3 giá trị từ `--sample-data` hoặc nguồn description nếu có căn cứ rõ ràng. Nếu không có mẫu, ghi `Không có`. Chỉ dùng dữ liệu mẫu đã che, không lấy dữ liệu production hoặc dữ liệu khách hàng thật.
 - `PII`: dùng `Y` hoặc `N` theo quy tắc PII bên dưới. Nếu chưa đủ căn cứ và không có conflict thì ghi `N`, không tự thêm câu mặc định về PII vào `Ghi chú`. Nếu có khả năng PII nhưng nguồn mâu thuẫn hoặc cần quyết định nghiệp vụ, ghi `conflict` và hỏi xác nhận trước khi hoàn tất.
@@ -212,7 +234,7 @@ Quy tắc từng trường:
 - `Trạng thái xác nhận`: luôn ghi chính xác `Chưa xác nhận` cho dữ liệu mới trích xuất, trừ khi có xác nhận rõ từ DBA/SME.
 - `Ghi chú`: giữ ghi chú nghiệp vụ hoặc giới hạn từ nguồn khi có. Không lặp lại description đã đưa vào cột `Mô tả`, không tự thêm các câu mặc định về PII/FK và không chép toàn bộ mẫu hoặc dữ liệu nhạy cảm vào ghi chú. Nếu không có giá trị data mẫu cho field, ghi thêm chính xác `Chưa có dữ liệu`. Ghi thêm `JSON`, `XML`, `CLOB/BLOB`, giới hạn nguồn, xung đột hoặc lý do chưa xác định khi có liên quan. Nếu kết luận bị giới hạn bởi file không đọc được hoặc file chưa được review, ghi rõ tên file và trạng thái; không dùng một câu `Chưa xác minh` chung chung để thay thế bằng chứng.
 
-Các trường văn bản có thể xác định là chưa có nguồn dùng `Chưa rõ` khi chưa thể xác định. Không dùng nhãn suy luận trong `G. Mô tả`; chỉ đưa nội dung semantic đã tổng hợp. Ngoại lệ: `Bắt buộc nghiệp vụ`, `Công thức tính`, `Allow Null`, `PK/FK` và `Loại PII` tuân theo quy tắc riêng ở trên.
+Các trường văn bản khác có thể dùng `Chưa rõ` khi chưa thể xác định, nhưng `G. Mô tả` không thuộc ngoại lệ này: luôn phải có nội dung semantic khác `Chưa rõ` và `Không có`. Không dùng nhãn suy luận trong `G. Mô tả`; chỉ đưa nội dung semantic đã tổng hợp. Ngoại lệ: `Bắt buộc nghiệp vụ`, `Công thức tính`, `Allow Null`, `PK/FK` và `Loại PII` tuân theo quy tắc riêng ở trên.
 
 ### 1.5. Quy tắc PII
 
@@ -249,7 +271,8 @@ Trước khi lưu output:
 - kiểm tra data validation của các dropdown;
 - quét các lỗi `#REF!`, `#DIV/0!`, `#VALUE!`, `#N/A`, `#NAME?`, `#NUM!`, `#NULL!`, `#SPILL!`, `#CALC!`;
 - render sheet `03-COLUMNS` sau khi điền để kiểm tra không bị cắt chữ, tràn nội dung hoặc mất style;
-- export đúng một file `.xlsx` cho mỗi bảng/view.
+- quét toàn bộ cột `G. Mô tả`: không được có ô trống, `Chưa rõ`, `Không có` hoặc mô tả chỉ là placeholder; nếu có phải ghi `error` và không bàn giao workbook đó;
+- export đúng một file `.xlsx` cho mỗi bảng/view có thể xác định và đọc được; conflict datatype không được bỏ qua file.
 - File phụ trợ `*.xlsx.inspect.ndjson` do Artifact Tool tạo phải được chuyển vào thư mục riêng `outputs/inspect/`, không để cạnh workbook trong thư mục output chính.
 
 Tạo `outputs/batch-report.csv` với tối thiểu các cột:
@@ -275,7 +298,7 @@ conflict
 error
 ```
 
-Ghi đúng một dòng ngay sau khi kiểm tra xong từng output. Cuối workflow báo cáo tổng số đối tượng đã quét, đã tạo, bị bỏ qua, conflict, lỗi, câu hỏi cần xác nhận và đường dẫn output/report.
+Ghi đúng một dòng ngay sau khi kiểm tra xong từng output. Khi workbook được tạo nhưng có datatype conflict, dùng `created`, ghi chi tiết ở cột `Conflicts` và `Questions`. Cuối workflow báo cáo tổng số đối tượng đã quét, đã tạo, bị bỏ qua, conflict, lỗi, câu hỏi cần xác nhận và đường dẫn output/report.
 Ngoài `batch-report.csv`, phải bàn giao `outputs/file-review-checkpoint.txt` với checkpoint đã nêu ở trên.
 
 ## 2. Tiêu chí output
@@ -286,14 +309,14 @@ Mỗi workbook mới phải đáp ứng các tiêu chí sau:
 - có đúng các sheet và layout của template;
 - có đúng một bảng/view đích;
 - số dòng field bằng số cột được xác định từ DDL;
-- tên cột, thứ tự, kiểu dữ liệu, độ dài, precision, scale và default khớp nguồn;
+- tên cột và thứ tự khớp nguồn; cột C dùng cú pháp Oracle Database 26 sau chuẩn hóa và tăng một lần theo quy tắc, giới hạn về `STANDARD` khi overflow, còn kiểu DDL gốc, độ dài gốc, độ dài sau `CEIL`, precision, scale, `BYTE`/`CHAR` và default phải có thể đối chiếu qua audit/report khi cần;
 - PK/FK và tham chiếu khớp constraint nguồn; unique index không bị ghi nhầm thành PK;
 - cột `Bảng FK` ghi `Không có` khi field không có FK trong DDL;
-- description được đưa đầy đủ từ nguồn khi có nguồn; nếu không có description trực tiếp thì được tổng hợp theo `references/semantic-field-description.md` trong context khảo sát ngành hàng không, không phải phép dịch literal tên cột;
+- description được đưa đầy đủ từ nguồn khi có nguồn; nếu không có description trực tiếp thì bắt buộc tổng hợp theo `references/semantic-field-description.md` trong context khảo sát ngành hàng không, không phải phép dịch literal tên cột; mọi dòng phải có `G. Mô tả` semantic khác `Chưa rõ` và `Không có`;
 - field không có sample source ghi `Không có`, không tự tạo dữ liệu từ kiểu cột;
 - field chưa có data mẫu ghi thêm `Chưa có dữ liệu` trong `Ghi chú`;
 - nếu có data mẫu, `Dữ liệu mẫu` nhận tối đa 1–3 giá trị; mẫu được dùng làm bằng chứng hỗ trợ mô tả semantic cùng với tên bảng, tên field, datatype và các field liên quan, nhưng không dùng riêng mẫu để kết luận business rule hoặc PII;
-- PII, loại PII và logic bảo vệ tuân thủ tài liệu được cung cấp hoặc được ghi rõ là chưa xác minh;
+- PII, loại PII và logic bảo vệ tuân thủ tài liệu được cung cấp hoặc được ghi rõ là chưa xác minh; datatype conflict phải được nêu trong `Conflicts`/`Questions`, không được âm thầm bỏ qua workbook;
 - `Bắt buộc nghiệp vụ` và `Công thức tính` không bị suy diễn;
 - `Trạng thái xác nhận` có giá trị `Chưa xác nhận`;
 - dropdown `Loại PII` dùng đúng nguồn `'05-LOAI-PII'!$B$6:$B$20`, không hard-code và không cho nhập tự do thay thế;
@@ -316,15 +339,15 @@ CREATE TABLE REVERA_OWNER.AOS_MASTER (
 );
 ```
 
-Nếu không có description hoặc sample source, các dòng mới trong `03-COLUMNS` có dạng:
+Nếu không có description hoặc sample source, các dòng mới trong `03-COLUMNS` vẫn phải có mô tả semantic bảo thủ dựa trên bảng, tên field và kiểu dữ liệu, không được dùng `Chưa rõ` hoặc `Không có` ở cột `G. Mô tả`:
 
 | STT | Tên cột | Kiểu dữ liệu | Allow Null | PK/FK | Bảng FK | Mô tả | Giá trị mặc định | Dữ liệu mẫu | PII | Loại PII | Logic masking/encrypt PII | Bắt buộc nghiệp vụ | Công thức tính | Trạng thái xác nhận | Ghi chú |
 |---:|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | AOS_CODE | NUMBER(3,0) | N | PK | Không có | Mã định danh của bản ghi AOS. | Không có | Không có | N |  | Không áp dụng |  |  | Chưa xác nhận | Chưa có dữ liệu |
-| 2 | AOS_NAME | VARCHAR2(20) |  |  | Không có | Tên hiển thị của bản ghi AOS. | Không có | Không có | N |  | Không áp dụng |  |  | Chưa xác nhận | Chưa có dữ liệu |
+| 2 | AOS_NAME | VARCHAR2(24) |  |  | Không có | Tên hiển thị của bản ghi AOS. | Không có | Không có | N |  | Không áp dụng |  |  | Chưa xác nhận | Chưa có dữ liệu |
 | 3 | REGION_CODE | NUMBER(4,0) |  |  | Không có | Mã vùng liên kết với bản ghi AOS. | Không có | Không có | N |  | Không áp dụng |  |  | Chưa xác nhận | Chưa có dữ liệu |
 
-Nếu tài liệu description có nội dung, thay `Mô tả = Chưa rõ` bằng toàn bộ nội dung đã dịch, không rút gọn. Nếu không có description trực tiếp, dùng tên bảng, tên field, datatype và sample để ghi mô tả semantic, ví dụ `REGION_CODE` trong bảng AOS có thể ghi `Mã vùng liên kết với bản ghi AOS.`. Nếu có sample đã che, dùng tối đa 1–3 giá trị sample đó thay cho `Không có`.
+Nếu tài liệu description có nội dung, ghi toàn bộ nội dung đã dịch, không rút gọn. Nếu không có description trực tiếp, dùng tên bảng, tên field, datatype và sample để ghi mô tả semantic; nếu vai trò chi tiết vẫn chưa được xác nhận thì mô tả phải nêu đối tượng dữ liệu và trường lưu thông tin đó, còn giới hạn xác nhận ghi ở `P. Ghi chú`. Nếu có sample đã che, dùng tối đa 1–3 giá trị sample đó thay cho `Không có` ở cột `I. Dữ liệu mẫu`, không thay thế yêu cầu bắt buộc của cột `G. Mô tả`.
 
 Ví dụ khi chạy với data mẫu:
 
@@ -341,7 +364,7 @@ Không biến việc quan sát mẫu `AOS_CODE` thành xác nhận nghiệp vụ
 
 - Đây là tạo mới, không phải sửa. Không đọc workbook cũ để lấy dữ liệu và không cập nhật workbook nguồn.
 - Không tạo workbook cho bảng/view chưa nằm trong phạm vi người dùng yêu cầu.
-- Không tự tạo field, kiểu dữ liệu, default, bảng FK, PII, loại PII, logic bảo vệ, business rule hoặc công thức. Mô tả được tổng hợp theo reference semantic trong context khảo sát ngành hàng không, khi có căn cứ từ tên bảng, tên trường, datatype, dữ liệu mẫu, quan hệ và tài liệu liên quan.
+- Không tự tạo field, kiểu dữ liệu hoặc alias. Kiểu C chỉ được chuẩn hóa theo cú pháp Oracle Database 26 có bằng chứng; default, bảng FK, PII, loại PII, logic bảo vệ, business rule hoặc công thức không được tự tạo. Mô tả được tổng hợp theo reference semantic trong context khảo sát ngành hàng không, khi có căn cứ từ tên bảng, tên trường, datatype, dữ liệu mẫu, quan hệ và tài liệu liên quan.
 - Không biến index thành constraint; không biến tên có hậu tố `_id` thành FK nếu chưa có bằng chứng hoặc người dùng chưa bật quy tắc đó rõ ràng.
 - Không suy ra `Bắt buộc nghiệp vụ` từ `NOT NULL`.
 - Không suy ra PII chỉ từ tên cột. Khi chưa đủ căn cứ, ghi `PII = N` và không thêm câu mặc định vào ghi chú; nếu có conflict thì dừng field bị ảnh hưởng để hỏi xác nhận.
@@ -354,3 +377,4 @@ Không biến việc quan sát mẫu `AOS_CODE` thành xác nhận nghiệp vụ
 - Với JSON/XML/CLOB/BLOB cần giữ nguyên bản ghi, ghi rõ loại payload trong `Ghi chú`.
 - Không đổi cấu trúc, style hoặc nội dung template ngoài phần điền `03-COLUMNS` và việc thêm dòng cần thiết cho đủ số cột.
 - Nếu có code hoặc script hỗ trợ, comment chỉ cho nghiệp vụ, thuật toán phức tạp hoặc quyết định kiến trúc; comment phải giải thích tại sao.
+- Không đưa thông tin nguồn, chương, trang hoặc citation vào `G. Mô tả`; provenance của việc chuẩn hóa kiểu chỉ nằm trong audit/report, không ghi vào `P - Ghi chú`.

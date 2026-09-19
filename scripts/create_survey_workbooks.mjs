@@ -255,6 +255,8 @@ function printUsage() {
     [--sample-data <sample.csv|sample.json> ...] \
     [--reference <file> ...] \
     [--input-dir <directory>] \
+    [--oracle-max-string-size <STANDARD|EXTENDED>] \
+    [--oracle-national-character-set <AL16UTF16|UTF8>] \
     [--output-dir <directory>] [--all]
 
 Options:
@@ -265,6 +267,8 @@ Options:
   --sample-data       Optional masked sample data in CSV or JSON format. Repeat for multiple files.
   --reference         Additional reference file that belongs to the input scope. Repeat as needed.
   --input-dir         Directory whose accessible files must be reviewed before analysis.
+  --oracle-max-string-size  Oracle 26 MAX_STRING_SIZE context; default STANDARD.
+  --oracle-national-character-set  Oracle 26 national character set; default conservative AL16UTF16.
   --output-dir        Output directory. Default: bundled outputs/.
   --all               Create one workbook for every CREATE TABLE in the DDL files.
   --help              Show this help.
@@ -280,6 +284,8 @@ function parseArgs(argv) {
     outputDir: DEFAULT_OUTPUT_DIR,
     template: DEFAULT_TEMPLATE,
     inputDir: "",
+    oracleMaxStringSize: "STANDARD",
+    oracleNationalCharacterSet: "AL16UTF16",
     all: false,
   };
   let customDdl = false;
@@ -308,6 +314,8 @@ function parseArgs(argv) {
     else if (arg === "--sample-data") args.sampleData.push(next);
     else if (arg === "--reference") args.referenceFiles.push(next);
     else if (arg === "--input-dir") args.inputDir = next;
+    else if (arg === "--oracle-max-string-size") args.oracleMaxStringSize = next.toUpperCase();
+    else if (arg === "--oracle-national-character-set") args.oracleNationalCharacterSet = next.toUpperCase();
     else if (arg === "--output-dir") args.outputDir = next;
     else throw new Error(`Tham số không hỗ trợ: ${arg}`);
     i += 1;
@@ -318,6 +326,12 @@ function parseArgs(argv) {
   }
   if (args.all && args.objects.length > 0) {
     throw new Error("Chỉ dùng một trong --object hoặc --all");
+  }
+  if (!["STANDARD", "EXTENDED"].includes(args.oracleMaxStringSize)) {
+    throw new Error("--oracle-max-string-size chỉ nhận STANDARD hoặc EXTENDED");
+  }
+  if (!["AL16UTF16", "UTF8"].includes(args.oracleNationalCharacterSet)) {
+    throw new Error("--oracle-national-character-set chỉ nhận AL16UTF16 hoặc UTF8");
   }
   return args;
 }
@@ -588,6 +602,130 @@ function parseCreateTables(sql, sourceFile) {
     header.lastIndex = closingIndex + 1;
   }
   return results;
+}
+
+function formatOracle26SizedType(base, size, unit = "") {
+  return `${base}(${size}${unit ? ` ${unit}` : ""})`;
+}
+
+function oracle26StringLimit(base, context) {
+  if (base === "CHAR") return 2000;
+  if (base === "VARCHAR2") return context.oracleMaxStringSize === "EXTENDED" ? 32767 : 4000;
+  if (base === "NCHAR") return context.oracleNationalCharacterSet === "UTF8" ? 2000 : 1000;
+  if (base === "NVARCHAR2") {
+    if (context.oracleMaxStringSize === "EXTENDED") {
+      return context.oracleNationalCharacterSet === "UTF8" ? 32767 : 16383;
+    }
+    return context.oracleNationalCharacterSet === "UTF8" ? 4000 : 2000;
+  }
+  return null;
+}
+
+function canonicalizeOracle26Alias(type) {
+  const normalized = type.replace(/\s+/g, " ").trim().toUpperCase();
+  const aliases = [
+    [/^CHARACTER\s*\(\s*(\d+)\s*\)$/, (_, size) => `CHAR(${size})`],
+    [/^VARCHAR\s*\(\s*(\d+)\s*\)$/, (_, size) => `VARCHAR2(${size})`],
+    [/^CHARACTER\s+VARYING\s*\(\s*(\d+)\s*\)$/, (_, size) => `VARCHAR2(${size})`],
+    [/^CHAR\s+VARYING\s*\(\s*(\d+)\s*\)$/, (_, size) => `VARCHAR2(${size})`],
+    [/^NATIONAL\s+CHARACTER\s*\(\s*(\d+)\s*\)$/, (_, size) => `NCHAR(${size})`],
+    [/^NATIONAL\s+CHAR\s*\(\s*(\d+)\s*\)$/, (_, size) => `NCHAR(${size})`],
+    [/^NATIONAL\s+CHARACTER\s+VARYING\s*\(\s*(\d+)\s*\)$/, (_, size) => `NVARCHAR2(${size})`],
+    [/^NATIONAL\s+CHAR\s+VARYING\s*\(\s*(\d+)\s*\)$/, (_, size) => `NVARCHAR2(${size})`],
+    [/^NCHAR\s+VARYING\s*\(\s*(\d+)\s*\)$/, (_, size) => `NVARCHAR2(${size})`],
+    [/^NUMERIC(?:\s*\((\d+)(?:\s*,\s*(-?\d+))?\))?$/, (_, precision, scale) => precision ? `NUMBER(${precision}${scale === undefined ? "" : `,${scale}`})` : "NUMBER"],
+    [/^DECIMAL(?:\s*\((\d+)(?:\s*,\s*(-?\d+))?\))?$/, (_, precision, scale) => precision ? `NUMBER(${precision}${scale === undefined ? "" : `,${scale}`})` : "NUMBER"],
+    [/^(?:INTEGER|INT|SMALLINT)$/, () => "NUMBER(38)"],
+    [/^DOUBLE\s+PRECISION$/, () => "FLOAT(126)"],
+    [/^REAL$/, () => "FLOAT(63)"],
+  ];
+  for (const [pattern, replacement] of aliases) {
+    const match = normalized.match(pattern);
+    if (match) return replacement(...match);
+  }
+  return normalized;
+}
+
+function normalizeOracle26Datatype(sourceType, context) {
+  const original = sourceType.trim();
+  const canonical = canonicalizeOracle26Alias(original);
+  const textMatch = canonical.match(/^(CHAR|VARCHAR2|NCHAR|NVARCHAR2)\s*(?:\(\s*(\d+)(?:\s+(BYTE|CHAR))?\s*\))?$/i);
+  if (textMatch) {
+    const base = textMatch[1].toUpperCase();
+    const originalSize = textMatch[2] ? Number(textMatch[2]) : base === "CHAR" || base === "NCHAR" ? 1 : null;
+    const unit = textMatch[3] ? textMatch[3].toUpperCase() : "";
+    if (originalSize === null) {
+      return { status: "conflict", reason: `${base} phải khai báo size theo cú pháp Oracle Database 26`, question: `Xác nhận size nguyên bản của ${base} trong DDL: ${original}` };
+    }
+    if ((base === "NCHAR" || base === "NVARCHAR2") && unit) {
+      return { status: "conflict", reason: `${base} không nhận qualifier ${unit} theo cú pháp Oracle Database 26`, question: `Xác nhận qualifier của ${base} trong DDL: ${original}` };
+    }
+    const newSize = Math.ceil(originalSize * 1.2);
+    const maxSize = oracle26StringLimit(base, context);
+    if (newSize > maxSize) {
+      if (context.oracleMaxStringSize === "STANDARD") {
+        const outputType = formatOracle26SizedType(base, maxSize, unit);
+        // STANDARD là giới hạn đích của metadata khảo sát nên phải giữ workbook và ghi rõ phần cắt giới hạn để không mất dấu vết chuẩn hóa.
+        return {
+          status: "ok",
+          type: outputType,
+          note: `Kiểu dữ liệu gốc từ DDL: ${original}; CEIL(${originalSize} × 1.2) = ${newSize} vượt giới hạn STANDARD ${maxSize}; kiểu Oracle Database 26 trong C được đặt về ${outputType}`,
+          warning: `${original}: kết quả tăng 20% ${formatOracle26SizedType(base, newSize, unit)} vượt STANDARD nên đã đặt về ${outputType}`,
+        };
+      }
+      return {
+        status: "conflict",
+        reason: `${formatOracle26SizedType(base, newSize, unit)} vượt giới hạn context Oracle Database 26 (${context.oracleMaxStringSize}, ${context.oracleNationalCharacterSet})`,
+        question: `Xác nhận context ${context.oracleMaxStringSize}/${context.oracleNationalCharacterSet} hoặc cho phép giữ kiểu gốc ${original}; không tự cắt giảm và không đổi sang LOB`,
+        type: original,
+        note: `Chưa chuẩn hóa kiểu dữ liệu do ${formatOracle26SizedType(base, newSize, unit)} vượt giới hạn ${context.oracleMaxStringSize}; giữ kiểu gốc trong C để chờ xác nhận`,
+      };
+    }
+    const outputType = formatOracle26SizedType(base, newSize, unit);
+    return {
+      status: "ok",
+      type: outputType,
+      note: `Kiểu dữ liệu gốc từ DDL: ${original}; kiểu Oracle Database 26 trong C: ${outputType}; áp dụng CEIL(${originalSize} × 1.2)`,
+    };
+  }
+
+  const supported = [
+    /^(?:NUMBER(?:\s*\(\s*\d+(?:\s*,\s*-?\d+)?\s*\))?|DATE|BINARY_FLOAT|BINARY_DOUBLE|CLOB|NCLOB|BLOB|BFILE|LONG(?:\s+RAW)?|RAW\s*\(\s*\d+\s*\)|ROWID|UROWID(?:\s*\(\s*\d+\s*\))?|BOOLEAN|JSON(?:\s*\([\s\S]+\))?|VECTOR(?:\s*\([\s\S]+\))?)$/i,
+    /^FLOAT(?:\s*\(\s*\d+\s*\))?$/i,
+    /^TIMESTAMP(?:\s*\(\s*\d+\s*\))?(?:\s+WITH(?:\s+LOCAL)?\s+TIME\s+ZONE)?$/i,
+    /^INTERVAL\s+YEAR(?:\s*\(\s*\d+\s*\))?\s+TO\s+MONTH$/i,
+    /^INTERVAL\s+DAY(?:\s*\(\s*\d+\s*\))?\s+TO\s+SECOND(?:\s*\(\s*\d+\s*\))?$/i,
+    /^(?:SYS\.)?(?:XMLTYPE|SDO_GEOMETRY|SDO_TOPO_GEOMETRY|SDO_GEORASTER)$/i,
+  ];
+  if (supported.some((pattern) => pattern.test(canonical))) {
+    return {
+      status: "ok",
+      type: canonical,
+      note: canonical !== original ? `Kiểu dữ liệu gốc từ DDL: ${original}; kiểu Oracle Database 26 trong C: ${canonical}` : "",
+    };
+  }
+  return {
+    status: "conflict",
+    reason: `Không xác minh được cú pháp kiểu dữ liệu Oracle Database 26: ${original}`,
+    question: `Cung cấp mapping Oracle Database 26 có bằng chứng cho kiểu ${original}; không tự tạo kiểu thay thế`,
+  };
+}
+
+function prepareOracle26Datatypes(table, context) {
+  const conflicts = [];
+  for (const column of table.columns) {
+    const result = normalizeOracle26Datatype(column.type, context);
+    if (result.status === "conflict") {
+      column.oracle26Type = result.type ?? column.type;
+      column.oracle26TypeNote = [result.note, result.reason, result.question].filter(Boolean).join(". ");
+      conflicts.push(`${column.name}: ${result.reason}. ${result.question}`);
+      continue;
+    }
+    column.oracle26Type = result.type;
+    column.oracle26TypeNote = result.note;
+    if (result.warning) conflicts.push(`${column.name}: ${result.warning}`);
+  }
+  return conflicts;
 }
 
 function parseCsvLine(line) {
@@ -876,6 +1014,13 @@ function indexedSuffix(columnName) {
   return match ? Number(match[1]) : null;
 }
 
+function semanticDescriptionFallback(column, table) {
+  const object = tableBusinessObject(table);
+  const name = normalizeIdentifier(column.name);
+  // Phải có nội dung semantic tối thiểu để người đọc biết field thuộc đối tượng nào dù nguồn chưa nêu vai trò chi tiết.
+  return `Thông tin nghiệp vụ của ${object} được lưu tại trường ${name}; vai trò chi tiết cần được xác nhận theo tài liệu nghiệp vụ.`;
+}
+
 function semanticDescriptionForColumn(column, table, sampleValues) {
   const name = normalizeIdentifier(column.name);
   const object = tableBusinessObject(table);
@@ -915,7 +1060,7 @@ function semanticDescriptionForColumn(column, table, sampleValues) {
   if (name.endsWith("_CODE") || name.endsWith("_CDE")) return `Mã nghiệp vụ liên quan đến ${object}.`;
   if (name.endsWith("_NUMBER") || name.endsWith("_NUMB") || name.endsWith("_NO")) return `Số hoặc mã định danh liên quan đến ${object}.`;
   if (name === "REMARKS" || name.includes("DESCRIPTION") || name.includes("NOTE")) return `Nội dung mô tả hoặc ghi chú liên quan đến ${object}.`;
-  return "";
+  return semanticDescriptionFallback(column, table);
 }
 
 // Cột Mô tả dùng cho nội dung data element; loại tiền tố chương/mục để thông tin nguồn không lẫn vào mô tả.
@@ -929,6 +1074,11 @@ function cleanDescription(value) {
     .trim();
 }
 
+function isDescriptionPlaceholder(value) {
+  const normalized = String(value ?? "").trim().toLocaleLowerCase("vi-VN");
+  return normalized === "" || normalized === "chưa rõ" || normalized === "không có" || normalized.includes("không có mô tả data element");
+}
+
 function getFieldValues(column, table, descriptionRows, sampleRows) {
   const description = csvValue(descriptionRows, table, column.name, ["description", "mô tả", "desc"]);
   const sample = csvValue(descriptionRows, table, column.name, ["sample", "data_sample", "dữ liệu mẫu"]);
@@ -939,23 +1089,27 @@ function getFieldValues(column, table, descriptionRows, sampleRows) {
   const protection = csvValue(descriptionRows, table, column.name, ["masking", "encryption", "logic masking/encrypt pii"]);
   const note = csvValue(descriptionRows, table, column.name, ["notes", "note", "ghi chú"]);
   const documentDescription = documentDescriptionForColumn(table, column.name);
-  const directDescription = cleanDescription(description || documentDescription);
+  const cleanedDescription = cleanDescription(description || documentDescription);
+  const directDescription = isDescriptionPlaceholder(cleanedDescription) ? "" : cleanedDescription;
   const inferredDescription = directDescription ? "" : semanticDescriptionForColumn(column, table, sampleValues);
   const effectiveDescription = directDescription || inferredDescription;
+  if (isDescriptionPlaceholder(effectiveDescription)) {
+    throw new Error(`Không tạo được mô tả semantic bắt buộc cho ${table.schema}.${table.name}.${column.name}`);
+  }
   const notes = note ? [note] : [];
   if (!sample && sampleValues.length === 0) notes.push("Chưa có dữ liệu");
-  if (/\b(CLOB|BLOB|JSON|XML)\b/i.test(column.type)) notes.push("Cần giữ nguyên payload " + column.type);
+  if (/\b(CLOB|BLOB|JSON|XML)\b/i.test(column.oracle26Type ?? column.type)) notes.push("Cần giữ nguyên payload " + (column.oracle26Type ?? column.type));
 
   const pii = piiSource.toUpperCase() === "Y" ? "Y" : "N";
   const logic = pii === "Y" ? protection || "Cần làm rõ" : "Không áp dụng";
   const type = pii === "Y" ? piiType : "";
   return [
     column.name,
-    column.type,
+    column.oracle26Type ?? column.type,
     column.allowNull,
     column.isPrimaryKey && column.foreignKey ? "PK+FK" : column.isPrimaryKey ? "PK" : column.foreignKey ? "FK" : "",
     column.foreignKey || "Không có",
-    effectiveDescription || "Chưa rõ",
+    effectiveDescription,
     defaultFromSource || column.defaultValue || "Không có",
     sample || sampleValues.slice(0, 3).join(" | ") || "Không có",
     pii,
@@ -1084,9 +1238,20 @@ async function main() {
       continue;
     }
     try {
+      const datatypeConflicts = prepareOracle26Datatypes(table, args);
       const sampleRows = sampleRowsForTable(sampleData, table, targets.length);
       await createWorkbook(args.template, outputPath, table, descriptionRows, sampleRows, inspectOutputDir);
-      report.push([table.sourceFile, table.schema, table.name, outputPath, "created", table.columns.length, "", "", ""]);
+      report.push([
+        table.sourceFile,
+        table.schema,
+        table.name,
+        outputPath,
+        "created",
+        table.columns.length,
+        datatypeConflicts.join(" | "),
+        datatypeConflicts.length > 0 ? "Đã tạo workbook; xem Conflicts/Questions trong batch-report.csv để xác nhận datatype" : "",
+        "",
+      ]);
     } catch (error) {
       report.push([table.sourceFile, table.schema, table.name, outputPath, "error", 0, "", "", error instanceof Error ? error.message : String(error)]);
     }
