@@ -38,4 +38,4 @@ Không đưa câu như `dữ liệu mẫu có dạng giá trị số` vào `G. M
 
 ### 5. Giới hạn
 
-Không suy diễn business rule, công thức, bắt buộc nghiệp vụ, PK/FK hoặc PII chỉ từ tên và mẫu. Khi bằng chứng mâu thuẫn hoặc không đủ để tạo một mô tả semantic hợp lý, ghi `Chưa rõ` và nêu câu hỏi hoặc giới hạn trong `Ghi chú`.
+Không suy diễn business rule, công thức, bắt buộc nghiệp vụ, PK/FK hoặc PII chỉ từ tên và mẫu. Không đưa nguồn suy ra, cách suy luận hoặc câu yêu cầu team kỹ thuật tự xác nhận vào workbook. Nếu thiếu mô tả trực tiếp, phải dùng context của bảng, nhóm field, thuật ngữ domain và mapping nghiệp vụ đã có để tạo một câu mô tả cụ thể. Resolver chỉ được thử tối đa 3 lần cho cùng một field; nếu vẫn không tạo được câu có nghĩa, ghi đúng `Field chưa được mô tả` vào ô Mô tả, tiếp tục tạo workbook và ghi lỗi của field đó vào cột `Errors` trong `batch-report.md`. Không dùng sentinel này để che giấu lỗi; đây là trạng thái incomplete cần BA/SME bổ sung sau.

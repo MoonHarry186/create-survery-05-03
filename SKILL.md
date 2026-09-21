@@ -1,21 +1,17 @@
 ---
 name: create-survery-05-03
-description: Tạo mới workbook Survey 05 từ template cho từng bảng hoặc view, điền sheet 03-COLUMNS theo cú pháp Oracle Database 26 từ DDL và nguồn mô tả, xử lý tuần tự và giữ nguyên nguồn.
+description: Tạo mới workbook Survey 05 Bronze từ DDL và nguồn mô tả theo template META, COL, CDC và LOAD; giữ nguyên nguồn, ghi rõ căn cứ và trạng thái thiết kế.
 metadata:
-  short-description: Tạo workbook từ DDL và điền 03-COLUMNS
+  short-description: Tạo workbook Survey 05 Bronze từ DDL
 ---
 
-# Tạo mới workbook Survey 05 từ DDL
+# Tạo workbook Survey 05 Bronze từ DDL
 
-Skill này dùng khi người dùng yêu cầu tạo mới một hoặc nhiều workbook theo template `assets/survey-05-phan-tich-du-lieu-03-danh-sach-field-template.xlsx` và điền sheet `03-COLUMNS` từ DDL, data dictionary, mẫu dữ liệu đã che hoặc tài liệu PII.
+Skill này dùng khi người dùng yêu cầu tạo mới một hoặc nhiều workbook theo template `assets/survey-05-phan-tich-du-lieu-03-danh-sach-field-template.xlsx` cho từng bảng hoặc view. Kết quả là metadata của bảng nguồn và ánh xạ sang bảng Bronze theo reference [`references/04-bronze.md`](references/04-bronze.md).
 
-## Bối cảnh nghiệp vụ
+Đây là workflow tạo mới. Không dùng workbook đã có dữ liệu làm nguồn để sửa, không sao chép dữ liệu từ output cũ và không ghi đè template, DDL, mẫu dữ liệu hoặc tài liệu nguồn.
 
-Đây là khảo sát metadata dữ liệu dành cho ngành hàng không. Bối cảnh này định hướng cách chọn thuật ngữ và diễn giải nghiệp vụ, nhưng không xác nhận trước domain của từng field; mọi mô tả vẫn phải dựa trên bằng chứng từ tên bảng, tên field, dữ liệu mẫu, quan hệ và tài liệu liên quan.
-
-Đây là workflow tạo mới. Không dùng workbook Survey 05 đã có dữ liệu làm nguồn để sửa, không sao chép nội dung từ workbook cũ sang workbook mới và không ghi đè file nguồn. Mỗi bảng hoặc view tạo thành một workbook riêng theo quy ước của template.
-
-## Cấu trúc thư mục skill
+## Cấu trúc skill
 
 ```text
 create-survery-05-03/
@@ -29,84 +25,114 @@ create-survery-05-03/
 │   ├── DDL-REVERA-apex-owner-APEX.sql
 │   └── DDL-2filethieu-- IIPS_OWNER.TTPIC_BILLING_AUDIT_T.sql
 ├── references/
+│   ├── 04-bronze.md
 │   ├── logic-pii.md
 │   ├── semantic-field-description.md
 │   └── Quy tắc bảo vệ Airline PII - Masking & Encryption.md
 └── outputs/
-    ├── batch-report.csv  # được tạo khi chạy skill
-    └── inspect/          # chứa các file *.xlsx.inspect.ndjson của Artifact Tool
+    ├── batch-report.md
+    ├── file-review-checkpoint.txt
+    └── inspect/
 ```
 
-Các file trong `assets/`, `sources/` và `references/` là nguồn bundled của skill. Thư mục `outputs/` là nơi nhận kết quả tạo mới và không dùng làm nguồn đầu vào.
+`references/04-bronze.md` là reference bắt buộc và là nguồn chuẩn cho tên bảng Bronze, sáu cột kỹ thuật, catalog quality/protection, CDC/SCD, quy tắc `ceil(n × 1,2)` và quy đổi kiểu sang Oracle AI Database 26ai. Các reference khác chỉ được dùng khi có trong phạm vi input hoặc được người dùng chỉ định; khi mâu thuẫn phải giữ riêng bằng chứng và ghi OQ, không tự chọn.
 
-## Input
+## Template mới phải được tuân thủ
 
-Đầu vào gồm:
+Template hiện tại có đúng bốn sheet:
 
-1. Template workbook bundled with skill:
+| Sheet | Vai trò |
+|---|---|
+| `00-META` | Identity và governance ở mức bảng |
+| `01-COL` | Từ điển cột nguồn, ánh xạ Bronze, quality và protection |
+| `02-CDC` | Chi tiết CDC/SCD |
+| `03-LOAD` | Cấu hình nạp Bronze, căn cứ và trạng thái quyết định |
 
-   `assets/survey-05-phan-tich-du-lieu-03-danh-sach-field-template.xlsx`
+Không dùng các tên sheet cũ như `01-GUIDE`, `02-ID`, `03-COLUMNS`, `04-CDC-SCD`, `05-LOAI-PII`. Không thêm sheet mới và không lấy contract cũ 16 cột làm contract hiện tại.
 
-2. Một hoặc nhiều file DDL, ví dụ:
+Sheet `01-COL` dùng vùng `A:AD`, header ở dòng 5 và dữ liệu bắt đầu từ dòng 6:
 
-   - `sources/DDL-REVERA-revera-owner.sql`
-   - `sources/DDL-REVERA-apex-owner-APEX.sql`
-   - `sources/DDL-2filethieu-- IIPS_OWNER.TTPIC_BILLING_AUDIT_T.sql`
+| Cột | Header |
+|---|---|
+| A | STT |
+| B | Tên cột |
+| C | Cột Bronze |
+| D | Kiểu dữ liệu nguồn |
+| E | Kiểu dữ liệu Bronze |
+| F | Mô tả |
+| G | Mặc định |
+| H | Dữ liệu mẫu |
+| I | Bắt buộc nghiệp vụ |
+| J | Công thức tính |
+| K | 1.2 Format |
+| L | 1.3 Length |
+| M | 1.4 Range |
+| N | 1.5 Domain |
+| O | 1.6 Allow Null |
+| P | 1.7 Unique |
+| Q | 1.8 RI |
+| R | 1.9 Consistency |
+| S | 1.10 Accuracy |
+| T | 1.11 Timeliness |
+| U | CDC/SCD |
+| V | 2.1 Masking |
+| W | 2.2 Encryption |
+| X | 2.3 Access |
+| Y | 2.4 Classification |
+| Z | 2.5 Anonymization |
+| AA | 2.6 Pseudonymization |
+| AB | Khác nguồn |
+| AC | Xác nhận |
+| AD | Ghi chú |
 
-3. Danh sách bảng/view cần tạo. Nếu người dùng yêu cầu xử lý toàn bộ DDL thì dùng toàn bộ block `CREATE TABLE` hoặc `CREATE VIEW` sau khi loại bỏ đối tượng trùng và ghi rõ phạm vi trong báo cáo. Không tự xử lý toàn bộ DDL chỉ vì file DDL chứa nhiều bảng.
-4. Nguồn bổ sung nếu có:
+Template có sẵn sáu dòng kỹ thuật `BRONZE_*` ở cuối vùng mẫu. Các dòng này luôn phải nằm sau toàn bộ cột nguồn, không được tính là cột nguồn và không được bỏ đi.
 
-   - tài liệu mô tả field hoặc `Description.csv`;
-   - tài liệu liên quan mô tả domain, bảng, quy trình hoặc data element để đối chiếu và suy luận có căn cứ;
-   - mẫu dữ liệu đã che;
-   - `references/logic-pii.md`;
-   - `references/semantic-field-description.md` để áp dụng quy tắc mô tả semantic trong context khảo sát dữ liệu ngành hàng không;
-   - `references/Quy tắc bảo vệ Airline PII - Masking & Encryption.md`;
-   - danh mục 15 loại PII trong sheet `05-LOAI-PII` của template;
-   - xác nhận của DBA hoặc SME.
+## Input và phạm vi
 
-5. Thư mục output. Nếu người dùng không chỉ định, dùng `outputs/` trong thư mục skill và tạo `outputs/batch-report.csv`.
+Input tối thiểu:
 
-Trước khi phân tích hoặc tạo bất kỳ workbook nào, phải xác định toàn bộ phạm vi file đầu vào. Nếu người dùng chỉ định một thư mục tài liệu, mọi file đọc được trong thư mục đó là input, ngoại trừ thư mục output, `.git`, `node_modules` và các file sinh ra trong quá trình chạy. Nếu người dùng truyền các file rời, phải đọc đủ từng file đã truyền và các file tham chiếu được dùng bởi workflow.
+1. Template bundled tại `assets/survey-05-phan-tich-du-lieu-03-danh-sach-field-template.xlsx`.
+2. Reference `references/04-bronze.md`.
+3. Một hoặc nhiều DDL có block `CREATE TABLE` hoặc `CREATE VIEW`.
+4. Danh sách object cần tạo. Chỉ dùng `--all` khi người dùng yêu cầu toàn bộ DDL; không tự xử lý toàn bộ file vì file có nhiều object.
 
-Nếu schema hoặc tên bảng/view chưa được xác định, không tự chọn đối tượng đầu tiên trong DDL. Hãy ghi câu hỏi cần xác nhận và dừng đối tượng chưa xác định.
+Input bổ sung có thể gồm data dictionary, comment DDL, tài liệu domain, mẫu dữ liệu đã che, tài liệu PII/ACL, xác nhận DBA/SME và metadata `{DATA_SOURCE}`, `{DB}`, `{NHOM}`. Nếu thiếu metadata không thể xác minh, ghi `Chưa rõ` và OQ; không tự điền tên nguồn, DB, nhóm, owner, steward hoặc business key.
 
-Script hỗ trợ nằm tại `scripts/create_survey_workbooks.mjs`. Khi chạy từ thư mục skill, script tự dùng template trong `assets/` và ba file DDL trong `sources/`. Script nhận một hoặc nhiều `--ddl`, một hoặc nhiều `--object SCHEMA.TABLE`, hoặc `--all` khi người dùng đã yêu cầu xử lý toàn bộ DDL:
+Mã `{DATA_SOURCE}` phải viết hoa, không dấu, dài tối đa 10 ký tự và cố định trong phạm vi nguồn. Tên bảng Bronze phải là:
+
+```text
+{DATA_SOURCE}_{DB}_{SCHEMA}_{TABLE}
+```
+
+viết hoa toàn bộ. Nếu chưa xác định được một thành phần, không tự chọn giá trị thay thế; giữ object chưa xác định ở trạng thái `error` hoặc `conflict` và ghi OQ.
+
+Script hỗ trợ là `scripts/create_survey_workbooks.mjs`. Trước khi chạy phải kiểm tra script đang đọc đúng bốn sheet và header thực tế của template; không dùng các hằng số của template cũ. Runtime phải có `@oai/artifact-tool`; nếu cần, đặt `OAI_ARTIFACT_TOOL_PATH`. Có thể truyền `--template`, nhiều `--ddl`, nhiều `--object`, `--sample-data` và `--output-dir`.
+
+Ví dụ phạm vi rõ ràng:
 
 ```bash
 node scripts/create_survey_workbooks.mjs \
+  --ddl sources/DDL-REVERA-revera-owner.sql \
   --object REVERA_OWNER.AOS_MASTER \
-  --object APEX_OWNER.CODE_SHARE_MASTER \
+  --sample-data ./samples/AOS_MASTER.json \
   --output-dir outputs
 ```
 
-Có thể truyền `--description-csv <file.csv>` nếu CSV có các cột nhận diện được như `schema`, `table`, `column`, `description`, `sample`, `default`, `pii`, `pii_type`, `masking` và `notes`. Script chỉ tự động trích xuất cấu trúc `CREATE TABLE`; view hoặc tài liệu PII phức tạp cần được xác minh bổ sung theo các quy tắc phía dưới.
+Mẫu JSON phải là mảng object hoặc object có `{ "schema": "...", "table": "...", "rows": [...] }`. Chỉ dùng mẫu đã che; không đưa dữ liệu production, secret hoặc PII thật vào workbook, ghi chú hay report.
 
-Có thể truyền thêm một hoặc nhiều `--sample-data <file.csv|file.json>` để cung cấp data mẫu đã che. CSV dạng bảng dùng tên cột DDL làm header; JSON dùng mảng object hoặc object có dạng `{ "schema": "...", "table": "...", "rows": [...] }`. Khi xử lý nhiều bảng, data mẫu nên có `schema` và `table` để gắn đúng đối tượng. Nếu không có metadata định danh, chỉ áp dụng cho lần chạy có đúng một `--object`.
+## 0. File review bắt buộc
 
-Runtime phải cung cấp `@oai/artifact-tool`. Nếu không dùng module resolution mặc định, đặt `OAI_ARTIFACT_TOOL_PATH` trỏ tới thư mục package `@oai/artifact-tool` trước khi chạy script. Có thể truyền `--template` và `--ddl` để dùng nguồn bên ngoài các file bundled.
+Trước khi phân tích, trích xuất DDL hoặc tạo workbook, phải lập phạm vi input theo thứ tự ổn định và đọc từng file đầy đủ. Phạm vi phải bao gồm template, `references/04-bronze.md`, DDL, data dictionary, sample, tài liệu PII/domain và các reference khác thực sự được dùng; loại trừ `outputs/`, `.git`, `node_modules`, `.DS_Store` và file sinh trong quá trình chạy.
 
-## 0. File review bắt buộc trước khi phân tích
+Với mỗi file:
 
-Đây là checkpoint bắt buộc và phải hoàn thành trước khi xác định bảng/view, đọc block DDL, suy luận field, điền `Ghi chú` hoặc tạo output.
+1. ghi tên, loại file, trạng thái đọc và phạm vi nội dung;
+2. dùng bộ đọc phù hợp: OOXML/spreadsheet cho `.xlsx`, parser cấu trúc cho CSV/JSON, đọc toàn bộ Markdown/SQL;
+3. chỉ ghi nhận bằng chứng, chưa kết luận PK/FK, nullable, PII, quality, datatype Bronze hoặc business rule;
+4. không chọn một file làm nguồn chính và bỏ qua file khác;
+5. file không đọc được phải ghi lỗi, không âm thầm bỏ qua.
 
-Quy trình phải xử lý từng file một, theo thứ tự ổn định:
-
-1. Lập danh sách toàn bộ file trong phạm vi input và loại rõ file output, file tạm, file hệ thống hoặc thư mục phụ thuộc không thuộc phạm vi.
-2. Mở và đọc toàn bộ nội dung có thể đọc được của file hiện tại.
-3. Ghi nhận tối thiểu tên file, loại file, trạng thái đọc, phạm vi nội dung đã đọc và các bằng chứng có thể dùng cho bảng/field.
-4. Chuyển sang file kế tiếp chỉ sau khi hoàn tất file hiện tại.
-5. Chỉ sau file cuối cùng mới tổng hợp, cross-check, phân tích DDL và tạo workbook.
-
-Trong giai đoạn đọc file:
-
-- không kết luận PK/FK, nullable, PII, mô tả nghiệp vụ hoặc conflict;
-- không chọn một file làm nguồn chính rồi dùng các file khác chỉ để bổ sung;
-- không tạo workbook, `batch-report.csv` hoàn chỉnh hoặc dữ liệu đầu ra khi chưa có checkpoint `YES`;
-- file không đọc được phải được ghi rõ tên và lỗi, không được âm thầm bỏ qua;
-- đọc được byte của file không thay thế cho việc đọc nội dung có cấu trúc; PDF, spreadsheet, JSON, CSV, Markdown và SQL phải được dùng bộ đọc phù hợp để kiểm tra toàn bộ nội dung.
-
-Sau file cuối cùng phải ghi checkpoint theo đúng dạng sau vào `outputs/file-review-checkpoint.txt` và đưa đường dẫn vào báo cáo:
+Sau file cuối cùng, tạo `outputs/file-review-checkpoint.txt`:
 
 ```text
 FILE REVIEW CHECKPOINT
@@ -120,261 +146,140 @@ Skipped files: 0
 All accessible files have been reviewed: YES/NO
 ```
 
-Chỉ được tiếp tục khi `All accessible files have been reviewed: YES`. Nếu là `NO`, dừng trước bước phân tích và không tạo workbook.
+Chỉ tiếp tục khi `All accessible files have been reviewed: YES`. Checkpoint phải được đưa vào `batch-report.md`.
 
-## 1. Yêu cầu, hướng dẫn
+## 1. Quy trình tạo workbook
 
-### 1.1. Tạo workbook mới
+Xử lý tuần tự theo `{schema}` rồi tên object tăng dần. Với mỗi object, hoàn tất theo thứ tự: xác định block DDL và bằng chứng, tạo bản sao template, điền bốn sheet, lưu, mở lại kiểm tra, ghi report một dòng rồi giải phóng workbook. Lỗi một object không được làm mất report hoặc dừng object độc lập khác.
 
-Đối với từng bảng/view trong phạm vi:
-
-1. Đọc template bằng workflow spreadsheet và tạo một bản sao mới từ template.
-2. Giữ nguyên toàn bộ các sheet, nội dung, style, merge cells, độ rộng cột, chiều cao dòng, freeze panes, filter, data validation, gridlines, tab color, page setup và thiết lập sheet của template.
-3. Không cần so sánh với workbook nguồn cũ và không thêm sheet từ workbook khác. Workbook mới phải có các sheet theo template, gồm `01-GUIDE`, `02-ID`, `03-COLUMNS`, `04-CDC-SCD`, `05-LOAI-PII`.
-4. Chỉ cập nhật sheet `03-COLUMNS` trong phạm vi yêu cầu hiện tại. Không tự điền `02-ID`, `04-CDC-SCD` hoặc nội dung danh mục `05-LOAI-PII` nếu người dùng không yêu cầu.
-5. Đặt tên file:
-
-   `survey-05-phan-tich-du-lieu-03-{SCHEMA}.{TEN_BANG_HOAC_VIEW}.xlsx`
-
-   Giữ nguyên chữ hoa/chữ thường của schema và tên bảng nếu hệ thống file cho phép. Nếu tên có ký tự không hợp lệ, chỉ chuẩn hóa ký tự tên file và ghi tên đối tượng thật trong báo cáo.
-6. Nếu output đã tồn tại, không ghi đè. Ghi `skipped` trong báo cáo và chuyển sang đối tượng kế tiếp.
-
-### 1.2. Xử lý tuần tự
-
-Khi xử lý nhiều đối tượng, sắp xếp ổn định theo `schema` rồi tên bảng/view tăng dần và xử lý từng đối tượng một. Không chạy song song và không chuyển sang đối tượng kế tiếp trước khi hoàn thành:
-
-1. xác định block DDL và nguồn tham chiếu;
-2. tạo workbook mới từ template;
-3. điền `03-COLUMNS`;
-4. lưu output;
-5. mở lại output để kiểm tra;
-6. ghi đúng một dòng vào `outputs/batch-report.csv`;
-7. giải phóng workbook hiện tại.
-
-Lỗi của một đối tượng không được làm mất báo cáo hoặc dừng các đối tượng độc lập khác. Conflict datatype vẫn phải tạo workbook và ghi cảnh báo ở `Conflicts`/`Questions`; chỉ ghi `error` hoặc `conflict` khi không thể xác định đối tượng, đọc nguồn hoặc export workbook.
-
-Khi số field vượt quá 80 dòng mẫu của template, phải ghi values cho phần dòng mẫu trước, sau đó copy dòng mẫu cuối sang từng dòng mở rộng và ghi values riêng cho từng dòng mở rộng. Vì `copyTo(..., "all")` không giữ style ổn định cho dòng ngoài vùng template trong Artifact Tool, phải áp dụng explicit format cho `A` và `B:P` của toàn bộ dòng mở rộng trước khi áp dụng validation/autofit; kiểm tra style tại dòng cuối mẫu và dòng mở rộng đầu tiên trước khi bàn giao.
-
-### 1.3. Đọc nguồn DDL
-
-Đọc toàn bộ block `CREATE TABLE` hoặc `CREATE VIEW` của đúng schema và đúng tên đối tượng. Từ DDL, trích xuất:
-
-- tên cột và thứ tự cột;
-- kiểu dữ liệu nguyên bản, gồm độ dài, precision và scale;
-- default expression;
-- `PRIMARY KEY`, `UNIQUE`, `FOREIGN KEY`, `CHECK`;
-- cột tham gia khóa composite;
-- bảng và cột được tham chiếu;
-- thông tin index khi cần đối chiếu, nhưng không coi index là constraint.
-
-Khi trích xuất kiểu dữ liệu, phải tách riêng `kiểu gốc từ DDL` và `kiểu ghi vào cột C`. Cột C là metadata đích cho Oracle Database 26, không phải bản sao nguyên văn của biểu thức DDL.
-
-### 1.3.1. Chuẩn hóa `C - Kiểu dữ liệu` theo Oracle Database 26
-
-Quy tắc này dựa trên tài liệu Oracle Database 26 chính thức: [SQL Language Reference — Data Types](https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/Data-Types.html), [SQL Language Quick Reference — Data Types](https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlqr/Data-Types.html) và [MAX_STRING_SIZE](https://docs.oracle.com/en/database/oracle/oracle-database/26/refrn/MAX_STRING_SIZE.html). Không suy đoán từ phiên bản Oracle cũ.
-
-1. Giữ nguyên biểu thức kiểu gốc trong bằng chứng xử lý. Chỉ đưa kiểu đã chuẩn hóa vào cột C. Khi kiểu C khác DDL gốc, ghi trong audit/report: `Kiểu dữ liệu gốc từ DDL: <gốc>; kiểu Oracle Database 26 trong C: <đích>; áp dụng CEIL(<n> × 1.2)` hoặc nêu rõ lý do chuẩn hóa alias; không đưa provenance kiểu dữ liệu vào `P - Ghi chú`.
-2. Chỉ chuẩn hóa alias khi bảng ánh xạ Oracle Database 26 xác nhận tương đương ngữ nghĩa, ví dụ `CHARACTER(n)` → `CHAR(n)`, `VARCHAR(n)`/`CHARACTER VARYING(n)`/`CHAR VARYING(n)` → `VARCHAR2(n)`, `NATIONAL CHARACTER(n)`/`NATIONAL CHAR(n)` → `NCHAR(n)`, `NATIONAL CHARACTER VARYING(n)`/`NATIONAL CHAR VARYING(n)`/`NCHAR VARYING(n)` → `NVARCHAR2(n)`, `NUMERIC`/`DECIMAL` → `NUMBER`, `INTEGER`/`INT`/`SMALLINT` → `NUMBER(38)`, `DOUBLE PRECISION` → `FLOAT(126)` và `REAL` → `FLOAT(63)`. Không tự tạo alias hoặc kiểu mới.
-3. Với `CHAR(n)`, `VARCHAR2(n)`, `NCHAR(n)` và `NVARCHAR2(n)`, tính đúng một lần từ giới hạn nguyên bản đã đọc trong DDL:
-
-   `giới hạn_mới = CEIL(giới_hạn_gốc × 1.2)`
-
-   Giữ nguyên `BYTE` hoặc `CHAR` của DDL đối với `CHAR`/`VARCHAR2`. `NCHAR` và `NVARCHAR2` luôn dùng độ dài ký tự theo cú pháp Oracle Database 26; nếu DDL gắn `BYTE` hoặc `CHAR` cho hai kiểu national-character này thì không tự sửa, phải ghi `conflict`/`error`, giữ kiểu gốc và hỏi xác nhận.
-4. Các ví dụ bắt buộc: `VARCHAR2(20)` → `VARCHAR2(24)`, `VARCHAR2(20 CHAR)` → `VARCHAR2(24 CHAR)`, `VARCHAR2(20 BYTE)` → `VARCHAR2(24 BYTE)`, `CHAR(1)` → `CHAR(2)`, `NCHAR(5)` → `NCHAR(6)`, `NVARCHAR2(10)` → `NVARCHAR2(12)`, `VARCHAR2(1)` → `VARCHAR2(2)`, `1` → `2`, `3` → `4`, `20` → `24`. Không dùng làm tròn gần nhất.
-5. Không tăng 20% cho `NUMBER`, `DATE`, `TIMESTAMP`, `CLOB`, `NCLOB`, `BLOB`, `RAW`, `LONG`, các kiểu không có giới hạn ký tự hữu hạn hoặc các thuộc tính precision/scale. `BYTE`, `CHAR`, precision, scale, default, nullable và constraint không được thay đổi ngoài quy tắc độ dài nêu trên.
-6. Sau khi tăng, phải kiểm tra giới hạn Oracle Database 26 trong đúng context. `CHAR` không vượt quá 2000; `VARCHAR2` không vượt quá 4000 với `MAX_STRING_SIZE=STANDARD` hoặc 32767 với `EXTENDED`; `NCHAR` không vượt quá giới hạn của national character set; `NVARCHAR2` không vượt quá giới hạn kết hợp của `MAX_STRING_SIZE` và national character set. Khi context chưa được cung cấp, dùng giới hạn bảo thủ hơn để phát hiện conflict, không tự chọn context thuận lợi.
-7. Nếu `CEIL(n × 1.2)` vượt giới hạn `STANDARD`, đặt kiểu ghi vào C về giới hạn chuẩn tương ứng của Oracle Database 26, giữ `BYTE` hoặc `CHAR` hợp lệ của DDL và ghi rõ kiểu gốc, kết quả `CEIL` và kiểu đã giới hạn trong audit/report. Ví dụ `VARCHAR2(4000)` → `VARCHAR2(4000)` sau khi `CEIL(4000 × 1.2) = 4800` vượt `STANDARD`; không đổi sang `CLOB` và không bỏ qua workbook.
-8. Nếu kiểu vượt cả giới hạn `EXTENDED`, có qualifier không hợp lệ hoặc không xác minh được cú pháp Oracle Database 26, vẫn tạo workbook với kiểu gốc trong C, ghi cảnh báo và câu hỏi xác nhận trong `Conflicts`/`Questions` của report. Không tự đổi sang LOB hoặc kiểu thay thế. Conflict datatype không được làm mất output của đối tượng.
-9. Chống tăng lặp: chỉ lấy `n` từ DDL gốc của lần chạy hiện tại. Không đọc giới hạn từ workbook/output trước đó để tính tiếp, không sửa DDL, template hoặc workbook nguồn.
-
-Script phải nhận context Oracle khi cần kiểm tra giới hạn (`MAX_STRING_SIZE` và national character set). Với `STANDARD`, overflow được giới hạn về mức chuẩn và ghi rõ bằng chứng; với conflict datatype còn lại, vẫn tạo workbook với kiểu gốc và ghi conflict/question trong report để xử lý tuần tự không bị dừng.
-
-Nếu có nhiều định nghĩa cùng tên nhưng khác schema, xử lý thành các đối tượng riêng. Nếu hai nguồn mô tả cùng một field mâu thuẫn, không tự chọn; ghi `conflict`, `Questions` và giữ bằng chứng trong `Ghi chú` hoặc báo cáo.
-
-### 1.4. Điền sheet `03-COLUMNS`
-
-Giữ nguyên 16 cột A:P của template:
-
-| Cột | Trường |
-|---|---|
-| A | STT |
-| B | Tên cột |
-| C | Kiểu dữ liệu |
-| D | Allow Null |
-| E | PK/FK |
-| F | Bảng FK |
-| G | Mô tả |
-| H | Giá trị mặc định |
-| I | Dữ liệu mẫu |
-| J | PII |
-| K | Loại PII |
-| L | Logic masking/encrypt PII |
-| M | Bắt buộc nghiệp vụ |
-| N | Công thức tính |
-| O | Trạng thái xác nhận |
-| P | Ghi chú |
-
-Điền một dòng cho từng cột, đúng thứ tự DDL. Không chỉ điền cột dùng cho KPI. Khi số cột vượt quá dòng mẫu hiện có, thêm dòng bằng cách sao chép style, number format, border, validation và chiều cao dòng của dòng mẫu gần nhất.
-
-Quy tắc từng trường:
-
-- `Tên cột`: giữ nguyên chính tả, chữ hoa/chữ thường và ký tự của DDL. Không dùng tên trong nguồn khác để ghi đè tên cột DDL.
-- `Kiểu dữ liệu`: ghi cú pháp Oracle Database 26 sau khi chuẩn hóa alias có bằng chứng và áp dụng một lần `CEIL(n × 1.2)` cho kiểu text hữu hạn được phép. Ví dụ `NUMBER(12,3)`, `VARCHAR2(20)` → `VARCHAR2(24)`, `VARCHAR2(4000)` → `VARCHAR2(4000)` khi kết quả tăng vượt `STANDARD`, `DATE`, `CHAR(1)` → `CHAR(2)`, `CLOB`, `BLOB`, `RAW` hoặc `TIMESTAMP`. Giữ precision, scale, `BYTE`/`CHAR` hợp lệ và các thuộc tính khác; giữ kiểu DDL gốc, kết quả tính và lý do giới hạn trong audit/report khi C đã thay đổi hoặc có conflict, không ghi vào `P - Ghi chú`.
-- `Allow Null`: ghi `N` khi DDL khai báo `NOT NULL`, `CHECK (... IS NOT NULL)` hoặc cột là thành viên PK. Ghi `Y` chỉ khi nguồn khai báo rõ cho phép null. Nếu DDL không đủ căn cứ, để trống và ghi câu hỏi nếu cần.
-- `PK/FK`: chỉ dùng giá trị có trong dropdown `PK`, `FK`, `PK+FK`. Ghi theo constraint nguồn; áp dụng cho từng cột của khóa composite. Không coi unique index là PK.
-- `Bảng FK`: nếu có constraint `REFERENCES`, ghi đúng dạng `SCHEMA.TEN_BANG.TEN_COT`. Nếu không có FK trong DDL, ghi chính xác `Không có`. Không tự đoán bảng/cột đích.
-- `Mô tả`: đọc `references/semantic-field-description.md` trước khi điền. Đây là khảo sát metadata dữ liệu trong ngành hàng không, nên ưu tiên thuật ngữ hàng không khi nguồn cung cấp đủ bằng chứng; không mặc định mọi field thuộc một nghiệp vụ cụ thể. Không dịch literal từng token của tên cột. Ưu tiên mô tả trực tiếp từ data dictionary, DDL comment, PDF, Markdown và tài liệu domain; nếu thiếu thì tổng hợp theo tên bảng, tên field, datatype, sample, quan hệ PK/FK và các pattern field có bằng chứng. Mô tả phải trả lời field đại diện cho thông tin nghiệp vụ nào và dùng cho vai trò gì nếu xác định được. Không đưa câu về hình dạng datatype/sample như `dữ liệu mẫu có dạng giá trị số` vào cột này. Không tự mở rộng abbreviation chưa có đủ bằng chứng. Không suy luận thành business rule, công thức, bắt buộc nghiệp vụ, PK/FK hoặc PII. Không chèn tên tài liệu, tên chương, số mục, số trang, tiền tố trích dẫn hoặc câu ghi nguồn vào giá trị cột này. Dịch tiếng Anh sang tiếng Việt nhưng không rút gọn hoặc thay đổi ý nghĩa; giữ nguyên thuật ngữ kỹ thuật. `G. Mô tả` là bắt buộc cho mọi field: không được để trống và không được ghi đúng các placeholder `Chưa rõ` hoặc `Không có`. Khi không có mô tả trực tiếp hoặc bằng chứng chưa đủ để xác định vai trò chi tiết, phải tạo mô tả semantic bảo thủ dựa trên bảng, tên field và kiểu dữ liệu, đồng thời nêu giới hạn xác nhận trong `P. Ghi chú` nếu cần.
-- `Giá trị mặc định`: ghi nguyên biểu thức default từ DDL. Nếu không có hoặc chưa xác định được, ghi `Không có` hoặc để trống khi trường bị giới hạn bởi dropdown/template.
-- `Dữ liệu mẫu`: ghi tối đa 1–3 giá trị từ `--sample-data` hoặc nguồn description nếu có căn cứ rõ ràng. Nếu không có mẫu, ghi `Không có`. Chỉ dùng dữ liệu mẫu đã che, không lấy dữ liệu production hoặc dữ liệu khách hàng thật.
-- `PII`: dùng `Y` hoặc `N` theo quy tắc PII bên dưới. Nếu chưa đủ căn cứ và không có conflict thì ghi `N`, không tự thêm câu mặc định về PII vào `Ghi chú`. Nếu có khả năng PII nhưng nguồn mâu thuẫn hoặc cần quyết định nghiệp vụ, ghi `conflict` và hỏi xác nhận trước khi hoàn tất.
-- `Loại PII`: nếu `PII = N`, để trống. Nếu `PII = Y`, chọn đúng một giá trị từ dropdown của sheet `05-LOAI-PII`; không dịch, viết tắt hoặc tự tạo giá trị.
-- `Logic masking/encrypt PII`: nếu `PII = N`, ghi `Không áp dụng`. Nếu `PII = Y`, chỉ ghi một cơ chế `Masking` hoặc `Encrypt` theo tài liệu tham chiếu, kèm logic và ví dụ.
-- `Bắt buộc nghiệp vụ`: không suy ra từ `NOT NULL`; để trống trong workflow này nếu chưa có xác nhận nghiệp vụ. Chỉ ghi `Y` hoặc `N` khi nguồn nghiệp vụ/SME cung cấp.
-- `Công thức tính`: để trống trong workflow này nếu chưa có công thức nghiệp vụ được xác nhận. Không tự tạo công thức từ tên cột hoặc kiểu dữ liệu.
-- `Trạng thái xác nhận`: luôn ghi chính xác `Chưa xác nhận` cho dữ liệu mới trích xuất, trừ khi có xác nhận rõ từ DBA/SME.
-- `Ghi chú`: giữ ghi chú nghiệp vụ hoặc giới hạn từ nguồn khi có. Không lặp lại description đã đưa vào cột `Mô tả`, không tự thêm các câu mặc định về PII/FK và không chép toàn bộ mẫu hoặc dữ liệu nhạy cảm vào ghi chú. Nếu không có giá trị data mẫu cho field, ghi thêm chính xác `Chưa có dữ liệu`. Ghi thêm `JSON`, `XML`, `CLOB/BLOB`, giới hạn nguồn, xung đột hoặc lý do chưa xác định khi có liên quan. Nếu kết luận bị giới hạn bởi file không đọc được hoặc file chưa được review, ghi rõ tên file và trạng thái; không dùng một câu `Chưa xác minh` chung chung để thay thế bằng chứng.
-
-Các trường văn bản khác có thể dùng `Chưa rõ` khi chưa thể xác định, nhưng `G. Mô tả` không thuộc ngoại lệ này: luôn phải có nội dung semantic khác `Chưa rõ` và `Không có`. Không dùng nhãn suy luận trong `G. Mô tả`; chỉ đưa nội dung semantic đã tổng hợp. Ngoại lệ: `Bắt buộc nghiệp vụ`, `Công thức tính`, `Allow Null`, `PK/FK` và `Loại PII` tuân theo quy tắc riêng ở trên.
-
-### 1.5. Quy tắc PII
-
-Nếu các tài liệu sau được cung cấp, sử dụng đồng thời:
-
-1. `references/logic-pii.md` để đối chiếu field hoặc nhóm field với mapping và logic bảo vệ.
-2. `references/Quy tắc bảo vệ Airline PII - Masking & Encryption.md` để xác minh loại PII, mức độ nhạy cảm, ngoại lệ, thuật toán, key, mẫu che và ví dụ.
-3. Danh mục 15 loại PII trong sheet `05-LOAI-PII` của `assets/survey-05-phan-tich-du-lieu-03-danh-sach-field-template.xlsx` để kiểm tra tên hợp lệ.
-4. Vùng dropdown `'05-LOAI-PII'!$B$6:$B$20` trong workbook template là danh sách giá trị được phép ghi vào `Loại PII`.
-
-Khi mapping PII:
-
-- có thể bỏ qua khác biệt hoa thường, dấu cách, `_` và `-` khi đối chiếu tài liệu, nhưng không thay đổi tên cột trong workbook;
-- chỉ map field khác tên khi cùng ý nghĩa được chứng minh bằng tên, description, ngữ cảnh bảng và tài liệu PII;
-- ưu tiên mapping field cụ thể và ngoại lệ field-specific hơn quy tắc mặc định;
-- khi hai tài liệu mâu thuẫn, ghi `conflict` và hỏi xác nhận;
-- không tự tạo mapping hoặc suy luận ngữ cảnh nhạy cảm, ví dụ phân biệt sở thích với thông tin y tế;
-- nếu `PII = Y`, chọn đúng một loại PII và một cơ chế bảo vệ;
-- không ghi đồng thời `Masking` và `Encrypt`;
-- nếu `Masking`, giữ mẫu che và ví dụ từ tài liệu;
-- nếu `Encrypt`, giữ nguyên thuật ngữ kỹ thuật như `AES-256-GCM`, `KMS`, `tokenization` và `ciphertext` nếu nguồn có nêu;
-- nếu không có logic bảo vệ phù hợp, ghi `Không áp dụng` và nêu giới hạn trong `Ghi chú`.
-
-Nếu không có tài liệu PII, không tự phân loại field từ tên cột đơn lẻ. Data mẫu không được dùng để xác nhận PII hoặc thay thế quyết định nghiệp vụ. Chỉ áp dụng chính sách `PII = N` khi không có conflict; không thêm câu mặc định về PII vào `Ghi chú`.
-
-### 1.6. Validation và báo cáo
-
-Trước khi lưu output:
-
-- dùng Artifact Tool theo workflow spreadsheet;
-- render template trước khi tạo để nắm layout;
-- sau khi điền, gọi `workbook.recalculate()` một lần;
-- kiểm tra vùng đầu, giữa và cuối của `03-COLUMNS`;
-- kiểm tra data validation của các dropdown;
-- quét các lỗi `#REF!`, `#DIV/0!`, `#VALUE!`, `#N/A`, `#NAME?`, `#NUM!`, `#NULL!`, `#SPILL!`, `#CALC!`;
-- render sheet `03-COLUMNS` sau khi điền để kiểm tra không bị cắt chữ, tràn nội dung hoặc mất style;
-- quét toàn bộ cột `G. Mô tả`: không được có ô trống, `Chưa rõ`, `Không có` hoặc mô tả chỉ là placeholder; nếu có phải ghi `error` và không bàn giao workbook đó;
-- export đúng một file `.xlsx` cho mỗi bảng/view có thể xác định và đọc được; conflict datatype không được bỏ qua file.
-- File phụ trợ `*.xlsx.inspect.ndjson` do Artifact Tool tạo phải được chuyển vào thư mục riêng `outputs/inspect/`, không để cạnh workbook trong thư mục output chính.
-
-Tạo `outputs/batch-report.csv` với tối thiểu các cột:
+Workbook output đặt tên:
 
 ```text
-Source DDL
-Schema
-Object name
-Output file
-Status
-Rows created
-Conflicts
-Questions
-Errors
+survey-05-phan-tich-du-lieu-03-{BẢNG_BRONZE}.xlsx
 ```
 
-`Status` chỉ dùng:
+Nếu output đã tồn tại thì không ghi đè, ghi `skipped` và chuyển object kế tiếp.
+
+Khi authoring bằng Artifact Tool:
+
+- đọc và render template trước khi ghi;
+- trước lệnh authoring đầu tiên chạy `mark_artifact_operation_started.mjs` với operation `create` một lần;
+- tạo bản sao từ template, giữ nguyên sheet, merge, style, width/height, freeze panes, gridlines, tab color, page setup và nội dung không thuộc phạm vi;
+- gọi `workbook.recalculate()` đúng một lần sau khi ghi;
+- không tạo workbook mới từ đầu thay cho việc copy template.
+
+### 1.1. `00-META`
+
+Điền các trường có bằng chứng: hệ thống, DB, schema, tên bảng/view nguồn, bảng Bronze, ngày thiết kế, người lập, loại object, loại nghiệp vụ, nhóm chức năng, file tổng quan, tên DWH/staging, ý nghĩa bảng, bản ghi đại diện, PK, business key, unique/index nghiệp vụ, owner, steward, classification, retention và usage.
+
+- Giữ đúng tên object nguồn trong trường nguồn.
+- Bảng Bronze dùng `{DATA_SOURCE}_{DB}_{SCHEMA}_{TABLE}` viết hoa.
+- `table`/`view`, `master`/`transaction`/`snapshot`/`history`/`audit`/`other` chỉ ghi khi có bằng chứng.
+- Chưa biết dùng `Chưa rõ`; không áp dụng dùng `N/A`; không ghi mật khẩu hoặc secret.
+
+### 1.2. `01-COL`
+
+Tạo đúng một dòng cho mỗi cột nguồn, đúng thứ tự DDL, sau đó đặt đúng sáu dòng kỹ thuật ở cuối. Bảng nguồn Bronze là bản sao 1-1 về cột và giá trị nghiệp vụ; không tự thêm cột nghiệp vụ hoặc sửa chất lượng dữ liệu tại Bronze.
+
+- `A STT`: đánh số cột nguồn; sáu dòng kỹ thuật dùng giá trị template `—`.
+- `B Tên cột`: giữ tên cột nguồn theo DDL và không dùng tên từ tài liệu khác để ghi đè.
+- `C Cột Bronze`: tên nguồn viết hoa; nếu trùng keyword Oracle hoặc `BRONZE_*` thì thêm `_` theo reference.
+- `D Kiểu dữ liệu nguồn`: ghi nguyên bản từ DDL hoặc source schema, gồm precision, scale, length và qualifier.
+- `E Kiểu dữ liệu Bronze`: quy đổi theo `references/04-bronze.md`; không ghi kiểu đích vào cột D.
+- `F Mô tả`: ưu tiên mô tả trực tiếp từ data dictionary, comment DDL và tài liệu domain. Nếu chưa có bằng chứng đủ rõ, ghi `Chưa rõ`, không dịch literal tên cột thành business rule.
+- `G Mặc định`: ghi nguyên biểu thức default; không có hoặc chưa xác minh ghi `Chưa rõ`.
+- `H Dữ liệu mẫu`: tối đa 1–3 giá trị đã che; không có mẫu ghi `Chưa rõ`.
+- `I Bắt buộc nghiệp vụ`: chỉ ghi khi SME/tài liệu nghiệp vụ xác nhận; không suy ra từ NOT NULL.
+- `J Công thức tính`: chỉ ghi công thức đã xác nhận; không tự tạo từ tên hoặc kiểu.
+- `K:T Quality`: dùng catalog trong reference; mỗi mục ghi giá trị có căn cứ, `N/A` hoặc `Chưa rõ`, không tự khẳng định quality từ một vài mẫu.
+- `U CDC/SCD`: dùng mã `CDC-WM`, `CDC-SD`, `CDC-KEY`, `SCD-FROM`, `SCD-TO`, `SCD-VER`, `SCD-CUR`, `SCD-BIZ-DT`, `SCD2` hoặc `N/A` theo bằng chứng.
+- `V:AA Protection`: dùng mã `MSK-*`, `ENC-*`, `AC-*`, `ANON-*`, `PSEU-*` trong reference. Trên Bronze, PII giữ plaintext và bảo vệ bằng ACL; không mã hóa cột Bronze. Khi không áp dụng ghi `N/A`.
+- `AB Khác nguồn`: ghi chênh lệch tên/kiểu/format, mapping và giới hạn kỹ thuật có bằng chứng; không chép secret hoặc mẫu đầy đủ.
+- `AC Xác nhận`: dùng `Chưa xác nhận`, `Đã xác nhận` hoặc `Cần làm rõ` đúng catalog.
+- `AD Ghi chú`: ghi OQ, giới hạn, payload JSON/XML/CLOB/BLOB, timezone, mapping hoặc quyết định cần theo dõi; không lặp description và không đưa provenance thay cho cột `AB`.
+
+Sáu dòng kỹ thuật phải giữ các giá trị contract sau:
+
+| Cột Bronze | Kiểu Bronze | Allow Null | Ghi chú |
+|---|---|---|---|
+| `BRONZE_INGEST_TS` | `TIMESTAMP(6)` UTC | `N` | Cột kỹ thuật, không có cột nguồn |
+| `BRONZE_SOURCE_SYSTEM` | `VARCHAR2(30 CHAR)` | `N` | Mã `{DATA_SOURCE}` |
+| `BRONZE_SOURCE_OBJECT` | `VARCHAR2(400 CHAR)` | `N` | `{DB}.{schema}.{table}` |
+| `BRONZE_BATCH_ID` | `VARCHAR2(64 CHAR)` | `N` | Mã batch nạp |
+| `BRONZE_OP` | `CHAR(1)` | `N` | `I`/`U`; không tự thêm semantics khác |
+| `BRONZE_SOURCE_TS` | `TIMESTAMP(6)` | `Y` nếu không CDC | Timestamp từ nguồn nếu có |
+
+Với dòng kỹ thuật, `B` và `D` là `—`, `C` và `E` dùng đúng contract, `AB` là `Cột kỹ thuật`; không gán PK/FK, PII, sample hoặc business formula từ suy đoán.
+
+### 1.3. Quy đổi kiểu dữ liệu Bronze
+
+Thực hiện đúng `references/04-bronze.md`, không dùng quy tắc cũ giới hạn chuỗi về `STANDARD` thay cho Bronze:
+
+1. Đích là Oracle AI Database 26ai, tương thích `COMPATIBLE >= 23.0.0`; `AL32UTF8` là character set đề xuất nếu context cho phép.
+2. Mọi kiểu chuỗi có length hữu hạn áp dụng đúng một lần `ceil(n × 1,2)`. Ví dụ `50→60`, `10→12`, `3→4`, `1→2`.
+3. Nếu length sau tăng vượt trần `VARCHAR2` theo `MAX_STRING_SIZE`, dùng `CLOB` và ghi căn cứ/rủi ro ở `AB` hoặc report. Không tự cắt về 4000, không bỏ workbook và không đổi âm thầm sang kiểu khác.
+4. Text/CLOB nguồn không nhân 1,2. `NUMBER`, `DATE`, `TIMESTAMP` và precision/scale giữ nguyên theo bảng quy đổi.
+5. Theo reference: boolean dùng `BOOLEAN`, JSON dùng `JSON`, UUID nhị phân dùng `RAW(16)`, XML dùng `XMLTYPE`, vector dùng `VECTOR`, spatial dùng `SDO_GEOMETRY`; chỉ áp dụng khi kiểu nguồn đã xác định.
+6. `RAW` nhỏ có thể áp dụng length rule; RAW lớn/unbounded dùng `BLOB` theo reference. `LONG` nguồn dùng `CLOB`.
+7. Không vượt `NUMBER` 38 chữ số, 1.000 cột/bảng hoặc identifier 128 byte. Không tự sửa nguồn; vượt giới hạn phải là OQ/conflict.
+8. Kiểu nguồn, kết quả tính, context limit và lý do quy đổi phải đối chiếu được qua `D`, `E`, `AB`, `AD` hoặc report; không đưa chuỗi provenance dài vào `F Mô tả`.
+
+### 1.4. `02-CDC`
+
+Điền thao tác Insert/Update/Delete, cách phát hiện thay đổi, watermark, hard delete, backfill/purge, khung giờ và số update khi có bằng chứng DBA. Phần SCD ghi overwrite, append-only, cột hiệu lực/phiên bản, history riêng, SCD1/SCD2/snapshot và khoảng lịch sử khi có xác nhận SME. Nếu chưa biết ghi `Chưa rõ`; không suy ra CDC từ tên cột thời gian đơn lẻ.
+
+### 1.5. `03-LOAD`
+
+Điền `Giá trị`, `Căn cứ`, `Trạng thái` cho kiểu nạp, khóa nhận diện dòng, phát hiện xoá, tần suất, partition và rotate.
+
+- Kiểu nạp chỉ dùng `full`, `incremental`, `cdc` hoặc `Theo mặc định` khi có căn cứ.
+- Khóa nhận diện dòng phải dựa trên PK/BK đã xác minh; không dùng tên cột có hậu tố `_ID` làm khóa.
+- Rotate chỉ đề xuất cho history/transaction lớn khi có căn cứ; master mặc định `Không` chỉ khi loại nghiệp vụ đã xác định.
+- Mọi quyết định phải có `Căn cứ` và `Trạng thái` `Đề xuất`, `Đã chốt` hoặc `Mở` theo reference. Không coi đề xuất là xác nhận DBA/SME.
+
+## 2. Mở rộng dòng và giữ layout
+
+Nếu số cột nguồn lớn hơn vùng năm dòng mẫu, phải chèn/copy dòng nguồn trước sáu dòng kỹ thuật, sau đó đặt sáu dòng kỹ thuật ngay sau `sourceLastRow`. Áp dụng style, number format, border, validation nếu template có, chiều cao và wrap text theo dòng mẫu gần nhất. Không để merge `A1:AD1`, `A2:AD2` hoặc `A4:AD4` che dữ liệu. Kiểm tra tối thiểu dòng nguồn cuối, dòng kỹ thuật đầu và dòng sau vùng mở rộng.
+
+Không thay đổi nội dung, style, merge, sheet order, column width, freeze panes, gridlines, tab color hoặc page setup ngoài việc thêm dòng cần thiết và điền dữ liệu trong bốn sheet.
+
+## 3. Validation và report
+
+Sau khi điền:
+
+- mở lại output và xác nhận đúng bốn sheet, đúng header thực tế và đúng một object;
+- xác nhận số dòng cột nguồn bằng số cột DDL, cộng đúng sáu dòng `BRONZE_*`;
+- kiểm tra vùng đầu, giữa, cuối của `01-COL`, sáu dòng kỹ thuật, merge/style và dữ liệu `00-META`, `02-CDC`, `03-LOAD`;
+- render template trước và workbook sau khi điền; kiểm tra không cắt chữ, tràn ô hoặc mất layout;
+- quét lỗi công thức `#REF!`, `#DIV/0!`, `#VALUE!`, `#N/A`, `#NAME?`, `#NUM!`, `#NULL!`, `#SPILL!`, `#CALC!`;
+- xác nhận không có dữ liệu production, secret hoặc PII thật;
+- chuyển các file `*.xlsx.inspect.ndjson` vào `outputs/inspect/`, không để ở cấp output chính.
+
+Tạo `outputs/batch-report.md` và ghi đúng một dòng sau khi kiểm tra xong từng object, tối thiểu có:
 
 ```text
-created
-skipped
-conflict
-error
+Source DDL | Data source | DB | Schema | Object name | Bronze table | Output file | Status | Source columns | Bronze technical columns | Conflicts | OQs | Errors
 ```
 
-Ghi đúng một dòng ngay sau khi kiểm tra xong từng output. Khi workbook được tạo nhưng có datatype conflict, dùng `created`, ghi chi tiết ở cột `Conflicts` và `Questions`. Cuối workflow báo cáo tổng số đối tượng đã quét, đã tạo, bị bỏ qua, conflict, lỗi, câu hỏi cần xác nhận và đường dẫn output/report.
-Ngoài `batch-report.csv`, phải bàn giao `outputs/file-review-checkpoint.txt` với checkpoint đã nêu ở trên.
+`Status` chỉ dùng `created`, `skipped`, `conflict`, `error`. Workbook có OQ hoặc datatype conflict nhưng đã export được dùng `created`, ghi chi tiết trong `Conflicts`/`OQs`. Cuối report ghi tổng số object đã quét, tạo, bỏ qua, conflict, lỗi và đường dẫn checkpoint/output.
 
-## 2. Tiêu chí output
+## 4. Tiêu chí bàn giao
 
-Mỗi workbook mới phải đáp ứng các tiêu chí sau:
+- Workbook được copy từ đúng template mới và có đúng `00-META`, `01-COL`, `02-CDC`, `03-LOAD`.
+- `01-COL` giữ một bản sao 1-1 các cột nguồn và có đúng sáu cột kỹ thuật ở cuối.
+- `D` giữ kiểu nguồn; `E` dùng kiểu Bronze theo `references/04-bronze.md` với `ceil(n × 1,2)` đúng một lần.
+- Tên bảng Bronze và tên cột Bronze tuân thủ quy ước nguồn; không tự tạo PK/FK, business rule, quality, PII hoặc CDC/SCD.
+- PII trên Bronze không bị mã hóa cột; ACL và catalog protection được ghi bằng mã có căn cứ.
+- Mọi quyết định load/rotate/partition có `Căn cứ` và `Trạng thái`; thiếu bằng chứng ghi `Chưa rõ`/`N/A` và OQ.
+- Không có output ghi đè nguồn; output chính chỉ có workbook, `batch-report.md`, `file-review-checkpoint.txt` và `inspect/`.
 
-- được tạo từ template, không phải từ workbook nguồn đã có dữ liệu;
-- có đúng các sheet và layout của template;
-- có đúng một bảng/view đích;
-- số dòng field bằng số cột được xác định từ DDL;
-- tên cột và thứ tự khớp nguồn; cột C dùng cú pháp Oracle Database 26 sau chuẩn hóa và tăng một lần theo quy tắc, giới hạn về `STANDARD` khi overflow, còn kiểu DDL gốc, độ dài gốc, độ dài sau `CEIL`, precision, scale, `BYTE`/`CHAR` và default phải có thể đối chiếu qua audit/report khi cần;
-- PK/FK và tham chiếu khớp constraint nguồn; unique index không bị ghi nhầm thành PK;
-- cột `Bảng FK` ghi `Không có` khi field không có FK trong DDL;
-- description được đưa đầy đủ từ nguồn khi có nguồn; nếu không có description trực tiếp thì bắt buộc tổng hợp theo `references/semantic-field-description.md` trong context khảo sát ngành hàng không, không phải phép dịch literal tên cột; mọi dòng phải có `G. Mô tả` semantic khác `Chưa rõ` và `Không có`;
-- field không có sample source ghi `Không có`, không tự tạo dữ liệu từ kiểu cột;
-- field chưa có data mẫu ghi thêm `Chưa có dữ liệu` trong `Ghi chú`;
-- nếu có data mẫu, `Dữ liệu mẫu` nhận tối đa 1–3 giá trị; mẫu được dùng làm bằng chứng hỗ trợ mô tả semantic cùng với tên bảng, tên field, datatype và các field liên quan, nhưng không dùng riêng mẫu để kết luận business rule hoặc PII;
-- PII, loại PII và logic bảo vệ tuân thủ tài liệu được cung cấp hoặc được ghi rõ là chưa xác minh; datatype conflict phải được nêu trong `Conflicts`/`Questions`, không được âm thầm bỏ qua workbook;
-- `Bắt buộc nghiệp vụ` và `Công thức tính` không bị suy diễn;
-- `Trạng thái xác nhận` có giá trị `Chưa xác nhận`;
-- dropdown `Loại PII` dùng đúng nguồn `'05-LOAI-PII'!$B$6:$B$20`, không hard-code và không cho nhập tự do thay thế;
-- không có dữ liệu PII thật trong workbook mới;
-- không có lỗi công thức rõ ràng trong phạm vi kiểm tra;
-- output không ghi đè template, DDL hoặc các file nguồn khác.
-- thư mục output chính chỉ chứa workbook `.xlsx`, `batch-report.csv`, `file-review-checkpoint.txt` và thư mục `inspect/`; không để file `*.xlsx.inspect.ndjson` ở cấp thư mục chính.
+## 5. Nguyên tắc không được vi phạm
 
-## 3. Sample
-
-Input DDL:
-
-```sql
-CREATE TABLE REVERA_OWNER.AOS_MASTER (
-    AOS_CODE NUMBER(3,0),
-    AOS_NAME VARCHAR2(20),
-    REGION_CODE NUMBER(4,0),
-    CONSTRAINT AOS_MASTER_PK PRIMARY KEY (AOS_CODE),
-    CONSTRAINT SYS_C0011254 CHECK ("AOS_CODE" IS NOT NULL)
-);
-```
-
-Nếu không có description hoặc sample source, các dòng mới trong `03-COLUMNS` vẫn phải có mô tả semantic bảo thủ dựa trên bảng, tên field và kiểu dữ liệu, không được dùng `Chưa rõ` hoặc `Không có` ở cột `G. Mô tả`:
-
-| STT | Tên cột | Kiểu dữ liệu | Allow Null | PK/FK | Bảng FK | Mô tả | Giá trị mặc định | Dữ liệu mẫu | PII | Loại PII | Logic masking/encrypt PII | Bắt buộc nghiệp vụ | Công thức tính | Trạng thái xác nhận | Ghi chú |
-|---:|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | AOS_CODE | NUMBER(3,0) | N | PK | Không có | Mã định danh của bản ghi AOS. | Không có | Không có | N |  | Không áp dụng |  |  | Chưa xác nhận | Chưa có dữ liệu |
-| 2 | AOS_NAME | VARCHAR2(24) |  |  | Không có | Tên hiển thị của bản ghi AOS. | Không có | Không có | N |  | Không áp dụng |  |  | Chưa xác nhận | Chưa có dữ liệu |
-| 3 | REGION_CODE | NUMBER(4,0) |  |  | Không có | Mã vùng liên kết với bản ghi AOS. | Không có | Không có | N |  | Không áp dụng |  |  | Chưa xác nhận | Chưa có dữ liệu |
-
-Nếu tài liệu description có nội dung, ghi toàn bộ nội dung đã dịch, không rút gọn. Nếu không có description trực tiếp, dùng tên bảng, tên field, datatype và sample để ghi mô tả semantic; nếu vai trò chi tiết vẫn chưa được xác nhận thì mô tả phải nêu đối tượng dữ liệu và trường lưu thông tin đó, còn giới hạn xác nhận ghi ở `P. Ghi chú`. Nếu có sample đã che, dùng tối đa 1–3 giá trị sample đó thay cho `Không có` ở cột `I. Dữ liệu mẫu`, không thay thế yêu cầu bắt buộc của cột `G. Mô tả`.
-
-Ví dụ khi chạy với data mẫu:
-
-```bash
-node scripts/create_survey_workbooks.mjs \
-  --object REVERA_OWNER.AOS_MASTER \
-  --sample-data ./samples/AOS_MASTER.json \
-  --output-dir outputs
-```
-
-Không biến việc quan sát mẫu `AOS_CODE` thành xác nhận nghiệp vụ; dùng mẫu như bằng chứng cùng với context để ghi phần semantic tương ứng. Chỉ đưa mẫu vào `Dữ liệu mẫu` và ghi `Chưa có dữ liệu` nếu field không có giá trị.
-
-## 4. Nguyên tắc
-
-- Đây là tạo mới, không phải sửa. Không đọc workbook cũ để lấy dữ liệu và không cập nhật workbook nguồn.
-- Không tạo workbook cho bảng/view chưa nằm trong phạm vi người dùng yêu cầu.
-- Không tự tạo field, kiểu dữ liệu hoặc alias. Kiểu C chỉ được chuẩn hóa theo cú pháp Oracle Database 26 có bằng chứng; default, bảng FK, PII, loại PII, logic bảo vệ, business rule hoặc công thức không được tự tạo. Mô tả được tổng hợp theo reference semantic trong context khảo sát ngành hàng không, khi có căn cứ từ tên bảng, tên trường, datatype, dữ liệu mẫu, quan hệ và tài liệu liên quan.
-- Không biến index thành constraint; không biến tên có hậu tố `_id` thành FK nếu chưa có bằng chứng hoặc người dùng chưa bật quy tắc đó rõ ràng.
-- Không suy ra `Bắt buộc nghiệp vụ` từ `NOT NULL`.
-- Không suy ra PII chỉ từ tên cột. Khi chưa đủ căn cứ, ghi `PII = N` và không thêm câu mặc định vào ghi chú; nếu có conflict thì dừng field bị ảnh hưởng để hỏi xác nhận.
-- Không xem đặc điểm quan sát từ data mẫu là xác nhận chức năng, PII, khóa hoặc business rule; mẫu chỉ là một bằng chứng trong việc tổng hợp nội dung semantic của field.
-- Không dịch, viết tắt, đổi chính tả hoặc tự tạo giá trị `Loại PII` ngoài dropdown.
-- Không ghi đồng thời `Masking` và `Encrypt`.
-- Không đưa dữ liệu production, token, mật khẩu, khóa mã hóa hoặc thông tin PII thật vào sample, ghi chú hay báo cáo.
-- Không rút gọn description và không thay đổi payload/code/thuật ngữ kỹ thuật.
-- Khi nguồn mâu thuẫn, giữ riêng bằng chứng, ghi `conflict` và hỏi xác nhận; không tự chọn một nguồn.
-- Với JSON/XML/CLOB/BLOB cần giữ nguyên bản ghi, ghi rõ loại payload trong `Ghi chú`.
-- Không đổi cấu trúc, style hoặc nội dung template ngoài phần điền `03-COLUMNS` và việc thêm dòng cần thiết cho đủ số cột.
-- Nếu có code hoặc script hỗ trợ, comment chỉ cho nghiệp vụ, thuật toán phức tạp hoặc quyết định kiến trúc; comment phải giải thích tại sao.
-- Không đưa thông tin nguồn, chương, trang hoặc citation vào `G. Mô tả`; provenance của việc chuẩn hóa kiểu chỉ nằm trong audit/report, không ghi vào `P - Ghi chú`.
+- Không tự xử lý object ngoài phạm vi người dùng yêu cầu.
+- Không đọc workbook output cũ để suy ra schema, datatype, sample hoặc business meaning.
+- Không biến index thành PK/FK; không suy luận khóa, PII, domain, quality hoặc CDC từ tên cột đơn lẻ.
+- Không sửa dữ liệu nghiệp vụ tại Bronze; chất lượng nghiệp vụ được xử lý tại nguồn.
+- Không nhân length nhiều lần; chỉ lấy length gốc từ DDL/source schema của lần chạy hiện tại.
+- Không mã hóa cột PII trên Bronze, không nạp secret và không đưa dữ liệu thật vào output.
+- Khi nguồn mâu thuẫn hoặc kiểu không thể xác minh, giữ bằng chứng riêng, tạo workbook nếu có thể, ghi `conflict`/OQ và không tự chọn.
+- `04-bronze.md` là reference chuẩn cho contract Bronze; nếu reference không có trong phạm vi hoặc không đọc được, phải dừng trước khi tạo output và ghi lỗi.
